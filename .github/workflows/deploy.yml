@@ -1,0 +1,48 @@
+name: Deploy to GCP VM (Service Account Based)
+
+on:
+  push:
+    branches:
+      - main
+      - dev-1
+      - dev-2
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: Set Environment Variables
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "INSTANCE_NAME=climb-prod" >> $GITHUB_ENV
+            echo "ZONE=us-central1-a" >> $GITHUB_ENV
+          elif [[ "${{ github.ref_name }}" == "dev-1" ]]; then
+            echo "INSTANCE_NAME=climb-dev-1" >> $GITHUB_ENV
+            echo "ZONE=us-central1-a" >> $GITHUB_ENV
+          elif [[ "${{ github.ref_name }}" == "dev-2" ]]; then
+            echo "INSTANCE_NAME=climb-dev-2" >> $GITHUB_ENV
+            echo "ZONE=us-central1-a" >> $GITHUB_ENV
+          fi
+
+      - name: Deploy to VM via gcloud SSH
+        run: |
+          gcloud compute ssh ${{ env.INSTANCE_NAME }} --zone ${{ env.ZONE }} --command "
+            cd ~/CLIMB && \
+            git fetch origin ${{ github.ref_name }} && \
+            git checkout ${{ github.ref_name }} && \
+            git pull origin ${{ github.ref_name }} && \
+            cd backend && \
+            docker-compose up --build -d
+          "
+
