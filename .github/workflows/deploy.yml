@@ -25,24 +25,24 @@ jobs:
       - name: Set Environment Variables
         run: |
           if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "INSTANCE_NAME=climb-prod" >> $GITHUB_ENV
-            echo "ZONE=us-central1-a" >> $GITHUB_ENV
+            echo "INSTANCE_IP=${{ secrets.VM_IP_PROD }}" >> $GITHUB_ENV
           elif [[ "${{ github.ref_name }}" == "dev-1" ]]; then
-            echo "INSTANCE_NAME=climb-dev-1" >> $GITHUB_ENV
-            echo "ZONE=us-central1-a" >> $GITHUB_ENV
+            echo "INSTANCE_IP=${{ secrets.VM_IP_DEV_1 }}" >> $GITHUB_ENV
           elif [[ "${{ github.ref_name }}" == "dev-2" ]]; then
-            echo "INSTANCE_NAME=climb-dev-2" >> $GITHUB_ENV
-            echo "ZONE=us-central1-a" >> $GITHUB_ENV
+            echo "INSTANCE_IP=${{ secrets.VM_IP_DEV_2 }}" >> $GITHUB_ENV
           fi
 
-      - name: Deploy to VM via gcloud SSH
-        run: |
-          gcloud compute ssh ${{ env.INSTANCE_NAME }} --zone ${{ env.ZONE }} --command "
-            cd ~/CLIMB && \
-            git fetch origin ${{ github.ref_name }} && \
-            git checkout ${{ github.ref_name }} && \
-            git pull origin ${{ github.ref_name }} && \
-            cd backend && \
-            docker-compose up --build -d
-          "
+      - name: Deploy to VM via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.INSTANCE_IP }}
+          username: deployer
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/CLIMB
+            git fetch origin ${{ github.ref_name }}
+            git checkout ${{ github.ref_name }}
+            git pull origin ${{ github.ref_name }}
+            cd backend
+            docker compose up --build -d
 

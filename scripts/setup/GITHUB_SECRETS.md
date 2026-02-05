@@ -1,31 +1,23 @@
-# GitHub Secrets Configuration for CLIMB (Service Account Mode)
+# GitHub Secrets Configuration for CLIMB (SSH Key Mode)
 
-Untuk menjalankan pipeline CI/CD menggunakan Service Account, harap tambahkan "Repository Secrets" berikut di GitHub:
+Untuk menjalankan pipeline CI/CD menggunakan SSH Key tradisional, tambahkan "Repository Secrets" berikut:
 
 ## Secret Utama
-- `GCP_SA_KEY`: Isi dengan **JSON Key** dari Service Account yang memiliki akses ke Compute Engine.
+- `GCP_SA_KEY`: Isi dengan **JSON Key** Service Account (Digunakan oleh `google-github-actions/auth`).
+- `SSH_PRIVATE_KEY`: Isi dengan **Private Key** yang digenerate (file `climb_deployer`).
+- `VM_IP_PROD`: IP Publik VM `climb-prod`.
+- `VM_IP_DEV_1`: IP Publik VM `climb-dev-1`.
+- `VM_IP_DEV_2`: IP Publik VM `climb-dev-2`.
 
 ---
 
-### Langkah Penyiapan di GCP:
+### Langkah Penyiapan:
 
-1. **Buat Service Account:**
-   - Masuk ke GCP Console > IAM & Admin > Service Accounts.
-   - Buat SA baru (misal: `climb-deployer`).
-   
-2. **Berikan Roles (Izin):**
-   - `roles/compute.instanceAdmin.v1`: Untuk mengelola instance.
-   - `roles/compute.osLogin`: Untuk akses masuk via SSH.
-   - `roles/iam.serviceAccountUser`: Dibutuhkan untuk menjalankan aksi sebagai SA.
-   - `roles/bigquery.admin`: (Opsional jika ingin otomatisasi schema BQ).
+1. **Generate SSH Key:** Ikuti panduan di `scripts/setup/SSH_SETUP_GUIDE.md`.
+2. **Tambah SSH Key ke GCP:** Masukkan Public Key ke Metadata Proyek di GCP.
+3. **Matikan OS Login:** Pastikan `enable-oslogin=FALSE` di Metadata GCP agar SSH key manual diterima.
+4. **Setup Permissions:** Pastikan Service Account memiliki role `BigQuery Admin` dan `Vertex AI User` untuk runtime aplikasi.
 
-3. **Generate JSON Key:**
-   - Klik SA yang baru dibuat > Keys > Add Key > Create new key > JSON.
-   - Simpan file tersebut dan masukkan isinya ke GitHub Secret `GCP_SA_KEY`.
-
-4. **Aktifkan OS Login di VM (Penting):**
-
-   - Pastikan metadata `enable-oslogin=TRUE` sudah diset pada project atau instance agar `gcloud compute ssh` bekerja dengan lancar.
 
 
 
