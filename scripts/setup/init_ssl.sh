@@ -15,8 +15,8 @@ fi
 
 echo "Requesting SSL certificate for $DOMAIN..."
 
-# Create dummy certificate to allow Nginx to start if needed
-# (Or ensure Nginx is running with the challenge location open)
+# Berpindah ke folder backend tempat docker-compose.yml berada
+cd "$(dirname "$0")/../../backend"
 
 docker compose run --rm --entrypoint "\
   certbot certonly --webroot -w /var/www/certbot \
