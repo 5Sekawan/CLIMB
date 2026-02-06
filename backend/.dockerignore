@@ -1,0 +1,6 @@
+node_modules
+dist
+certbot
+.env
+npm-debug.log
+*.map
