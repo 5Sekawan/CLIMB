@@ -53,4 +53,4 @@ echo "Next steps:"
 echo "1. Log out and log back in (re-login) to apply docker group changes."
 echo "2. Clone your repository as 'deployer' user: git clone <repo_url> ~/CLIMB"
 echo "3. Follow the CI/CD setup in PRD.md"
-echo "==========================================================
+echo "=========================================================="
