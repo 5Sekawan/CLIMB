@@ -1,14 +1,27 @@
 # Dependency directories
 node_modules/
 jspm_packages/
+<<<<<<< HEAD
 */node_modules/
+=======
+
+>>>>>>> origin
 # Build outputs
 dist/
+backend/dist/
 build/
 .next/
 out/
 bin/
 obj/
+
+# TypeScript Generated Files (Prevent committing compiled JS in src)
+backend/src/**/*.js
+backend/src/**/*.js.map
+backend/src/**/*.d.ts
+!backend/src/types/**/*.d.ts
+backend/src/**/*.d.ts.map
+*.tsbuildinfo
 
 # Environment variables & Secrets
 .env

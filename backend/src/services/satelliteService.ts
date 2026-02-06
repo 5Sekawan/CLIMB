@@ -100,4 +100,38 @@ export class SatelliteService {
       });
     });
   }
+
+  /**
+   * Extracts Short-Wave Infrared (SWIR) Ratio for Mineral Alteration Detection
+   * Uses Sentinel-2 Bands: B11 (1610nm) and B12 (2190nm)
+   * High values may indicate clay minerals or hydrothermal alteration.
+   */
+  static async getSWIR(geometry: any): Promise<number> {
+    await this.initialize();
+    
+    const eeGeom = ee.Geometry(geometry);
+    
+    // Get Sentinel-2 Image Collection
+    const dataset = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+      .filterBounds(eeGeom)
+      .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+      .median();
+
+    // Calculate SWIR Ratio: B11 / B12
+    // Clay minerals often absorb B12 more than B11
+    const swirRatio = dataset.select('B11').divide(dataset.select('B12')).rename('SWIR_Ratio');
+
+    const stats = swirRatio.reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: eeGeom,
+      scale: 20, // Slightly coarser scale for regional alteration
+      maxPixels: 1e9
+    });
+
+    return new Promise((resolve) => {
+      stats.evaluate((result: any) => {
+        resolve(result?.SWIR_Ratio || 0);
+      });
+    });
+  }
 }

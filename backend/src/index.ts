@@ -1,12 +1,16 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { Database } from './config/database';
 import projectRoutes from './routes/projectRoutes';
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 8080;
+
+// Connect to Database
+Database.connect();
 
 // Middleware
 app.use(cors());
