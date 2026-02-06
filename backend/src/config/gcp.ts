@@ -7,7 +7,7 @@ dotenv.config();
 
 const projectId = process.env.GCP_PROJECT_ID || '';
 const keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
-const location = process.env.GCP_LOCATION || 'us-central1';
+const location = process.env.GCP_LOCATION || 'asia-southeast1';
 
 export const bigquery = new BigQuery({
   projectId: projectId,
@@ -25,7 +25,7 @@ export const vertexAI = new VertexAI({
 });
 
 export const generativeModel = vertexAI.getGenerativeModel({
-  model: process.env.VERTEX_AI_MODEL_ID || 'gemini-1.5-pro',
+  model: process.env.VERTEX_AI_MODEL_ID || 'gemini-3-pro-preview',
 });
 
 // Use the standard method for preview models if applicable, 
