@@ -1,1 +1,0 @@
-{"version":3,"file":"satelliteService.d.ts","sourceRoot":"","sources":["satelliteService.ts"],"names":[],"mappings":"AAMA,qBAAa,gBAAgB;IAC3B,OAAO,CAAC,MAAM,CAAC,aAAa,CAAS;IAErC;;OAEG;WACU,UAAU;IA4BvB;;OAEG;WACU,OAAO,CAAC,QAAQ,EAAE,GAAG,GAAG,OAAO,CAAC,MAAM,CAAC;IA8BpD;;OAEG;WACU,iBAAiB,CAAC,QAAQ,EAAE,GAAG,GAAG,OAAO,CAAC,MAAM,CAAC;CA0B/D"}
