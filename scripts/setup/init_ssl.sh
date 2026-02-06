@@ -18,12 +18,12 @@ echo "Requesting SSL certificate for $DOMAIN..."
 # Berpindah ke folder backend tempat docker-compose.yml berada
 cd "$(dirname "$0")/../../backend"
 
-docker compose run --rm --entrypoint "\
+docker compose -f docker-compose.bootstrap.yml run --rm --entrypoint "\
   certbot certonly --webroot -w /var/www/certbot \
     --email $EMAIL --agree-tos --no-eff-email \
     -d $DOMAIN" certbot
 
 echo "Reloading Nginx to apply certificates..."
-docker compose exec nginx nginx -s reload
+docker compose -f docker-compose.bootstrap.yml exec nginx nginx -s reload
 
 echo "SSL Setup for $DOMAIN complete!"
