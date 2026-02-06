@@ -3,13 +3,19 @@ import { ProjectController } from '../controllers/projectController';
 
 const router = Router();
 
-// Phase 3: Inference
+// CRUD Operations
+router.get('/', ProjectController.getProjects);
+router.post('/', ProjectController.createProject);
+router.get('/:id', ProjectController.getProject);
+router.get('/:id/voxels', ProjectController.getProjectVoxels);
+
+// Async Inference
+router.post('/:id/inference/start', ProjectController.startInference);
+router.get('/:id/status', ProjectController.getInferenceStatus);
+
+// Legacy / Specialized Operations
 router.post('/predict', ProjectController.createInference);
-
-// Phase 4: Simulation
 router.post('/simulate', ProjectController.simulateParameters);
-
-// Phase 5: Reconciliation
 router.post('/actuals', ProjectController.submitActuals);
 
 export default router;

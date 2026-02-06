@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useCallback } from "react";
 import { StatCard, CButton, CBadge, InsightCard } from "@/components/climb/ui";
 import {
   UploadIcon,
@@ -17,8 +17,10 @@ import { ComparisonWorkspace } from "@/components/climb/reconciliation/compariso
 import { LessonsTerminal } from "@/components/climb/reconciliation/lessons-terminal";
 import { getProjectDetail } from "@/lib/mock-data";
 import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { cn, parseCoordinates } from "@/lib/utils";
 import Link from "next/link";
+import { useUploadActuals } from "@/hooks/use-reconciliation";
+import { Toast } from "@/components/climb/toast";
 
 const blockData = [
   { block: "A3-12", predicted: 2.84, actual: 2.65, variance: -0.19, status: "ok" as const },
@@ -39,6 +41,31 @@ export default function ReconciliationPage({
   const { id } = use(params);
   const project = getProjectDetail(id);
   const [isDragging, setIsDragging] = useState(false);
+  const uploadActuals = useUploadActuals();
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'success' as 'success' | 'error' | 'info' });
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      try {
+        const res = await uploadActuals.mutateAsync({ file, projectId: id });
+        setToast({ 
+          visible: true, 
+          message: `Processed ${res.count} records. Status: ${res.summary.status}`, 
+          type: 'success' 
+        });
+      } catch (err: any) {
+        setToast({ 
+          visible: true, 
+          message: err.message || 'Upload failed', 
+          type: 'error' 
+        });
+      }
+    }
+  }, [id, uploadActuals]);
 
   if (!project) {
     return (
@@ -134,22 +161,25 @@ export default function ReconciliationPage({
               <div
                 onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={() => setIsDragging(false)}
-                onDrop={() => setIsDragging(false)}
+                onDrop={handleDrop}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-8 transition-all duration-climb-fast",
+                  "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-8 transition-all duration-climb-fast cursor-pointer",
                   isDragging
                     ? "border-primary bg-climb-mint-subtle"
-                    : "border-border bg-card hover:border-primary/30"
+                    : "border-border bg-card hover:border-primary/30",
+                  uploadActuals.isPending && "opacity-50 pointer-events-none"
                 )}
               >
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   <UploadIcon className="h-6 w-6" />
                 </div>
                 <div className="text-center">
-                  <p className="text-sm font-medium text-foreground">Upload Actual Grade Data</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {uploadActuals.isPending ? "Analyzing..." : "Upload Actual Grade Data"}
+                  </p>
                   <p className="text-xs text-muted-foreground mt-1">Drag & drop CSV file from lab results, or click to browse</p>
                 </div>
-                <CButton variant="outline" size="sm">Browse Files</CButton>
+                <CButton variant="outline" size="sm" disabled={uploadActuals.isPending}>Browse Files</CButton>
               </div>
             </div>
 
@@ -202,6 +232,14 @@ export default function ReconciliationPage({
           </div>
         </div>
       </div>
+      
+      {/* Toast */}
+      <Toast 
+        visible={toast.visible} 
+        message={toast.message} 
+        type={toast.type}
+        onClose={() => setToast(prev => ({ ...prev, visible: false }))}
+      />
     </div>
   );
 }

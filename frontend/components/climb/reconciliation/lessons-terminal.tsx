@@ -4,9 +4,13 @@ import { cn } from "@/lib/utils";
 import { BrainIcon } from "@/components/climb/icons";
 import { CButton } from "@/components/climb/ui";
 import { DatabaseIcon } from "@/components/climb/icons";
+import { useInjectFeedback } from "@/hooks/use-reconciliation";
+import { useState } from "react";
 
 interface LessonsTerminalProps {
   className?: string;
+  projectId?: string;
+  location?: { lat: number; lon: number };
 }
 
 const lessons = [
@@ -47,7 +51,32 @@ const lessons = [
   },
 ];
 
-export function LessonsTerminal({ className }: LessonsTerminalProps) {
+export function LessonsTerminal({ className, projectId, location }: LessonsTerminalProps) {
+  const injectFeedback = useInjectFeedback();
+  const [injecting, setInjecting] = useState(false);
+
+  const handleInject = async () => {
+    if (!projectId || !location) return;
+    
+    // For MVP, we just inject the last AI lesson from the mock list
+    const lessonText = lessons[lessons.length - 1].content;
+    
+    setInjecting(true);
+    try {
+      await injectFeedback.mutateAsync({
+        projectId,
+        lesson: lessonText,
+        location
+      });
+      alert("Feedback injected successfully!");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to inject feedback.");
+    } finally {
+      setInjecting(false);
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -63,9 +92,14 @@ export function LessonsTerminal({ className }: LessonsTerminalProps) {
             Lessons Learned Terminal
           </h3>
         </div>
-        <CButton variant="solid" size="sm">
+        <CButton 
+          variant="solid" 
+          size="sm" 
+          onClick={handleInject} 
+          disabled={injecting || !projectId}
+        >
           <DatabaseIcon className="h-3 w-3" />
-          Inject to Knowledge Base
+          {injecting ? "Injecting..." : "Inject to Knowledge Base"}
         </CButton>
       </div>
 

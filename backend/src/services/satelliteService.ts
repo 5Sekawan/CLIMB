@@ -109,6 +109,7 @@ export class SatelliteService {
   static async getSWIR(geometry: any): Promise<number> {
     await this.initialize();
     
+    // Convert GeoJSON geometry to EE Geometry
     const eeGeom = ee.Geometry(geometry);
     
     // Get Sentinel-2 Image Collection
@@ -118,7 +119,7 @@ export class SatelliteService {
       .median();
 
     // Calculate SWIR Ratio: B11 / B12
-    // Clay minerals often absorb B12 more than B11
+    // Clay minerals often absorb B12 more than B11, so B11/B12 > 1
     const swirRatio = dataset.select('B11').divide(dataset.select('B12')).rename('SWIR_Ratio');
 
     const stats = swirRatio.reduceRegion({

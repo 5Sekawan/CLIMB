@@ -11,7 +11,7 @@ export interface IVoxelData {
   id: string;
   x: number;
   y: number;
-  z: number;
+  z: number; // depth
   lat: number;
   lon: number;
   au_grade?: number;
@@ -20,34 +20,74 @@ export interface IVoxelData {
   uncertainty?: number;
 }
 
+export interface IMineralMetadata {
+  label: string;
+  color: string;
+}
+
+export interface ICachedContext {
+  ragSummary?: {
+    short: string;
+    long: string;
+    sourceRef: string;
+  };
+  nearestDeposits?: Array<{
+    name: string;
+    distance: string;
+    grade: string;
+    source: string;
+  }>;
+  surfaceFeatures?: {
+    ndvi: number;
+    thermal: number;
+    swir: number;
+  };
+}
+
 export interface IEconomicParams {
-  priceAu: number; // per oz
-  priceCu: number; // per ton
-  miningCost: number; // per ton
-  processingCost: number; // per ton
-  recoveryRate: number; // 0-1
+  cogDefault: number;
+  baseTonnage: number; // Estimated from initial inference
+  baseNetValue: number; // Estimated
+  // Detailed params can be stored here or computed
+  priceAu?: number;
+  priceCu?: number;
+  miningCost?: number;
+  processingCost?: number;
+  recoveryRate?: number;
 }
 
 export interface IProject extends Document {
+  // --- Identity & Meta ---
   name: string;
   description?: string;
+  location: string; // e.g., "East Kalimantan"
+  status: 'active' | 'finished' | 'inactive' | 'processing'; // Added processing for internal state
+  
+  // --- Geospatial ---
   aoi: IAOI;
-  minerals: string[]; // e.g. ['Au', 'Cu']
-  status: 'DRAFT' | 'PROCESSING' | 'READY' | 'DRIFTING';
-  
-  // Operational Parameters
-  economicParams: IEconomicParams;
-  cog: number; // Cut-off Grade default
+  center: string; // "lat, lng" for UI display
+  area: number; // km2
+  elevation: string; // e.g. "100-200m ASL"
 
-  // Caching Layer (Hybrid Intelligence Storage)
-  surfaceContext?: {
-    ndvi: number;
-    thermal: number;
-    lastUpdated: Date;
-  };
-  
-  inferenceResults?: IVoxelData[]; // Cached 3D Model
-  
+  // --- Configuration ---
+  minerals: string[]; 
+  mineralMetadata: Map<string, IMineralMetadata>;
+  documents: mongoose.Types.ObjectId[]; // References to Knowledge Base
+
+  // --- Operational State ---
+  driftStatus: 'stable' | 'drifting';
+  confidence: number; // 0-100
+  lastInferenceAt?: Date;
+
+  // --- Cached Context (Persisted from Inference) ---
+  cachedContext?: ICachedContext;
+
+  // --- Economic Defaults ---
+  economicParams: IEconomicParams;
+
+  // --- Heavy Data ---
+  inferenceResults?: IVoxelData[]; // Hidden by default
+
   // Metadata
   createdAt: Date;
   updatedAt: Date;
@@ -63,16 +103,16 @@ const AOISchema = new Schema({
     default: 'Polygon'
   },
   coordinates: {
-    type: [[[[Number]]]], // Array of arrays of arrays of numbers
+    type: [[[[Number]]]], 
     required: true
   }
 }, { _id: false });
 
 const VoxelSchema = new Schema({
   id: { type: String, required: true },
-  x: { type: Number, required: true },
-  y: { type: Number, required: true },
-  z: { type: Number, required: true },
+  x: { type: Number, required: true }, // Longitude
+  y: { type: Number, required: true }, // Latitude
+  z: { type: Number, required: true }, // Depth
   lat: { type: Number, required: true },
   lon: { type: Number, required: true },
   au_grade: Number,
@@ -86,50 +126,85 @@ const ProjectSchema = new Schema<IProject>({
     type: String, 
     required: [true, 'Project name is required'],
     trim: true,
-    maxlength: [100, 'Name cannot be more than 100 characters']
+    maxlength: 100
   },
   description: { type: String, maxlength: 500 },
-  
-  // Geospatial Indexing for fast retrieval
-  aoi: { 
-    type: AOISchema, 
-    required: true,
-    index: '2dsphere' // Critical for spatial queries
-  },
-  
-  minerals: { type: [String], default: ['Au', 'Cu'] },
+  location: { type: String, default: 'Unknown Location' },
   
   status: {
     type: String,
-    enum: ['DRAFT', 'PROCESSING', 'READY', 'DRIFTING'],
-    default: 'DRAFT'
+    enum: ['active', 'finished', 'inactive', 'processing'],
+    default: 'active'
   },
 
-  // Defaults for Economic Simulation
+  // Geospatial
+  aoi: { 
+    type: AOISchema, 
+    required: true,
+    index: '2dsphere' 
+  },
+  center: { type: String },
+  area: { type: Number, default: 0 },
+  elevation: { type: String, default: '0m ASL' },
+
+  // Config
+  minerals: { type: [String], default: ['Au', 'Cu'] },
+  mineralMetadata: {
+    type: Map,
+    of: new Schema({ label: String, color: String }, { _id: false }),
+    default: {}
+  },
+  documents: [{ type: Schema.Types.ObjectId, ref: 'Document' }],
+
+  // Operational
+  driftStatus: {
+    type: String,
+    enum: ['stable', 'drifting'],
+    default: 'stable'
+  },
+  confidence: { type: Number, default: 0 },
+  lastInferenceAt: Date,
+
+  // Cache
+  cachedContext: {
+    ragSummary: {
+      short: String,
+      long: String,
+      sourceRef: String
+    },
+    nearestDeposits: [{
+      name: String,
+      distance: String,
+      grade: String,
+      source: String,
+      _id: false
+    }],
+    surfaceFeatures: {
+      ndvi: Number,
+      thermal: Number,
+      swir: Number
+    }
+  },
+
+  // Economics
   economicParams: {
-    priceAu: { type: Number, default: 1800 }, // USD/oz
-    priceCu: { type: Number, default: 8500 }, // USD/ton
-    miningCost: { type: Number, default: 2.5 }, // USD/ton
-    processingCost: { type: Number, default: 12.0 }, // USD/ton
-    recoveryRate: { type: Number, default: 0.85 }
+    cogDefault: { type: Number, default: 0.5 },
+    baseTonnage: { type: Number, default: 0 },
+    baseNetValue: { type: Number, default: 0 },
+    priceAu: Number,
+    priceCu: Number,
+    miningCost: Number,
+    processingCost: Number,
+    recoveryRate: Number
   },
-  
-  cog: { type: Number, default: 0.5 }, // g/t AuEq
 
-  // Cached Results
-  surfaceContext: {
-    ndvi: Number,
-    thermal: Number,
-    lastUpdated: Date
-  },
-  
   inferenceResults: {
     type: [VoxelSchema],
-    select: false // Performance: Don't load massive voxel array unless explicitly requested
+    select: false 
   }
 
 }, {
-  timestamps: true // Auto-manage createdAt/updatedAt
+  timestamps: true 
 });
 
 // Create Model
