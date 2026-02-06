@@ -26,10 +26,13 @@ jobs:
         run: |
           if [[ "${{ github.ref_name }}" == "main" ]]; then
             echo "INSTANCE_IP=${{ secrets.VM_IP_PROD }}" >> $GITHUB_ENV
+            echo "DOMAIN=${{ secrets.DOMAIN_PROD }}" >> $GITHUB_ENV
           elif [[ "${{ github.ref_name }}" == "dev-1" ]]; then
             echo "INSTANCE_IP=${{ secrets.VM_IP_DEV_1 }}" >> $GITHUB_ENV
+            echo "DOMAIN=${{ secrets.DOMAIN_DEV_1 }}" >> $GITHUB_ENV
           elif [[ "${{ github.ref_name }}" == "dev-2" ]]; then
             echo "INSTANCE_IP=${{ secrets.VM_IP_DEV_2 }}" >> $GITHUB_ENV
+            echo "DOMAIN=${{ secrets.DOMAIN_DEV_2 }}" >> $GITHUB_ENV
           fi
 
       - name: Deploy to VM via SSH
@@ -42,7 +45,11 @@ jobs:
             cd ~/CLIMB
             git fetch origin ${{ github.ref_name }}
             git checkout ${{ github.ref_name }}
-            git pull origin ${{ github.ref_name }}
+            git reset --hard origin/${{ github.ref_name }}
+            
+            # Ganti placeholder __DOMAIN__ dengan domain asli
+            sed -i "s/__DOMAIN__/${{ env.DOMAIN }}/g" backend/nginx.conf
+            
             cd backend
             docker compose up --build -d
 
