@@ -1,3 +1,5 @@
+import * as turf from '@turf/turf';
+
 export interface Voxel {
   id: string;
   x: number;
@@ -10,7 +12,7 @@ export interface Voxel {
 export class SpatialGridService {
   /**
    * Generates a 3D grid of voxels within a given polygon boundary
-   * For prototype: We simplify by using a bounding box grid and filtering points inside the polygon
+   * Uses Turf.js for precise Point-in-Polygon filtering.
    */
   static generateVoxels(
     polygon: [number, number][], // [[lon, lat], ...]
@@ -18,6 +20,15 @@ export class SpatialGridService {
     voxelSize: number = 5
   ): Voxel[] {
     const voxels: Voxel[] = [];
+
+    // Create Turf Polygon for validation
+    // Ensure the polygon is closed (first and last points match)
+    const closedPolygon = polygon[0][0] === polygon[polygon.length - 1][0] && 
+                          polygon[0][1] === polygon[polygon.length - 1][1] 
+                          ? polygon 
+                          : [...polygon, polygon[0]];
+    
+    const turfPoly = turf.polygon([closedPolygon]);
 
     // 1. Calculate Bounding Box
     const lons = polygon.map(p => p[0]);
@@ -34,17 +45,22 @@ export class SpatialGridService {
     let idCounter = 0;
     for (let lat = minLat; lat <= maxLat; lat += step) {
       for (let lon = minLon; lon <= maxLon; lon += step) {
-        // Only add if point is inside polygon (simplified point-in-polygon check can be added here)
-        // For the prototype, we assume all points in the bounding box are candidate for inference
-        for (let z = 0; z <= depthRange; z += voxelSize) {
-          voxels.push({
-            id: `v-${idCounter++}`,
-            x: lon,
-            y: lat,
-            z: z,
-            lat: lat,
-            lon: lon
-          });
+        
+        // 3. Precision Filter: Check if point is inside the AOI polygon
+        const point = turf.point([lon, lat]);
+        if (turf.booleanPointInPolygon(point, turfPoly)) {
+          
+          // Generate vertical stack for valid points
+          for (let z = 0; z <= depthRange; z += voxelSize) {
+            voxels.push({
+              id: `v-${idCounter++}`,
+              x: lon,
+              y: lat,
+              z: z,
+              lat: lat,
+              lon: lon
+            });
+          }
         }
       }
     }

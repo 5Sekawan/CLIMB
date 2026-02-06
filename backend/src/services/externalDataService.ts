@@ -15,7 +15,7 @@ export class ExternalDataService {
       const query = `
         SELECT site_name, mineral_type, grade, unit, source,
                ST_DISTANCE(geom, ST_GEOGPOINT(${lon}, ${lat})) as distance_meters
-        FROM 
+        FROM \`${datasetId}.${tableId}\`
         ORDER BY distance_meters ASC
         LIMIT ${limit}
       `;

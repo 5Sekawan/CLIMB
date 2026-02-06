@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { InferenceService } from '../services/inferenceService';
-import { AnalyticsService } from '../services/analyticsService';
+import { AnalyticsService, EconomicParams } from '../services/analyticsService';
 import { ReconciliationService, ActualData } from '../services/reconciliationService';
 
 export class ProjectController {
@@ -14,8 +14,17 @@ export class ProjectController {
 
       const voxelData = await InferenceService.predictGrade(name, polygon);
       
-      // Automatic initial analysis with default parameters
-      const analysis = AnalyticsService.analyzeZones(voxelData, 0.5, { au: 60, cu: 4 }, { miningPerTon: 20 });
+      // Automatic initial analysis with default parameters (Enterprise Defaults)
+      const defaultParams: EconomicParams = {
+        priceAu: 1800, // USD/oz
+        priceCu: 8500, // USD/ton
+        miningCost: 2.5, // USD/ton
+        processingCost: 12.0, // USD/ton
+        recoveryRate: 0.85,
+        density: 2.5
+      };
+
+      const analysis = AnalyticsService.analyzeZones(voxelData, 0.5, defaultParams);
 
       res.status(200).json({
         success: true,
@@ -33,10 +42,13 @@ export class ProjectController {
    */
   static async simulateParameters(req: Request, res: Response) {
     try {
-      const { voxelData, cog, prices, costs } = req.body;
-      if (!voxelData || cog === undefined) return res.status(400).json({ error: 'Missing data or COG' });
+      const { voxelData, cog, economicParams } = req.body;
+      
+      if (!voxelData || cog === undefined || !economicParams) {
+        return res.status(400).json({ error: 'Missing voxelData, COG, or economicParams' });
+      }
 
-      const analysis = AnalyticsService.analyzeZones(voxelData, cog, prices, costs);
+      const analysis = AnalyticsService.analyzeZones(voxelData, Number(cog), economicParams);
       res.status(200).json({ success: true, analysis });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
