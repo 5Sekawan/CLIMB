@@ -4,6 +4,8 @@ import { SatelliteService } from './satelliteService';
 import { ExternalDataService } from './externalDataService';
 import { SpatialGridService } from './spatialGridService';
 import type { Voxel } from './spatialGridService';
+import { Project } from '../models/Project';
+import * as turf from '@turf/turf';
 
 export class InferenceService {
   /**
@@ -74,6 +76,106 @@ export class InferenceService {
     } catch (error) {
       console.error('Inference error:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Background Worker for Full Inference Pipeline
+   */
+  static async runInferencePipeline(projectId: string) {
+    console.log(`[Inference Job] Starting for Project: ${projectId}`);
+    
+    try {
+      const project = await Project.findById(projectId);
+      if (!project) throw new Error('Project not found');
+
+      // 1. Context Gathering
+      const polygon = project.aoi.coordinates[0]; // GeoJSON format
+      
+      // GEE (Satellite)
+      // Note: Make sure coordinates are passed correctly to GEE (usually expects [lon, lat])
+      const geojson = { type: 'Polygon', coordinates: [polygon] };
+      const [ndvi, thermal, swir] = await Promise.all([
+        SatelliteService.getNDVI(geojson),
+        SatelliteService.getThermalAnomaly(geojson),
+        SatelliteService.getSWIR(geojson)
+      ]);
+
+      // RAG & External Data
+      const centerPt = turf.center(geojson as any);
+      const [lon, lat] = centerPt.geometry.coordinates;
+      
+      const ragSnippets = await RAGService.searchKnowledge(`Geology and minerals near ${lat}, ${lon}`, 3);
+      const nearestData = await ExternalDataService.getNearestDeposits(lat, lon, 5);
+
+      // 2. Voxelization
+      const voxels = SpatialGridService.generateVoxels(polygon as [number, number][]);
+
+      // 3. AI Generation (Gemini)
+      const prompt = `
+        System: You are an expert Geostatistician AI.
+        Task: Estimate 3D mineral grade distribution.
+        
+        Context:
+        - Location: ${project.location}
+        - Surface: NDVI=${ndvi.toFixed(2)}, Thermal=${thermal.toFixed(2)}C, SWIR_Ratio=${swir.toFixed(2)}
+        - Nearby Deposits: ${JSON.stringify(nearestData.map(d => ({ n: d.site_name, g: d.grade })))}
+        - Geological Reports: ${JSON.stringify(ragSnippets.map(r => r.content.substring(0, 150)))}
+        
+        Grid: ${voxels.length} voxels.
+        Target Minerals: ${project.minerals.join(', ')}.
+        
+        Output: JSON Array of objects: { "id": "voxel_id", "au_grade": number, "cu_grade": number, "uncertainty": 0-1 }
+      `;
+
+      const result = await generativeModel.generateContent(prompt);
+      const response = result.response;
+      // Using candidates directly or casting to any to handle type mismatch
+      const text = (response.candidates && response.candidates[0].content.parts[0].text) || (response as any).text();
+      
+      // Robust JSON parsing
+      const jsonStr = text.replace(/```json|```/g, '').trim();
+      let predictions = [];
+      try {
+        predictions = JSON.parse(jsonStr);
+      } catch (e) {
+        console.error("Gemini JSON Parse Error", e);
+        predictions = []; // Fallback or retry
+      }
+
+      // 4. Merge & Save
+      const mergedVoxels = voxels.map(v => {
+        const pred = predictions.find((p: any) => p.id === v.id) || {};
+        return { ...v, ...pred };
+      });
+
+      // Update Project
+      project.inferenceResults = mergedVoxels;
+      project.cachedContext = {
+        ragSummary: {
+          short: "AI Generated Summary based on context...", // Todo: Ask Gemini for summary too
+          long: "Detailed geological reasoning...",
+          sourceRef: "Multiple Sources"
+        },
+        nearestDeposits: nearestData.map(d => ({
+          name: d.site_name,
+          distance: `${d.distance_meters?.toFixed(0)}m`,
+          grade: `${d.grade} ${d.unit}`,
+          source: d.source
+        })),
+        surfaceFeatures: { ndvi, thermal, swir }
+      };
+      
+      project.status = 'active';
+      project.lastInferenceAt = new Date();
+      await project.save();
+
+      console.log(`[Inference Job] Completed for ${projectId}`);
+
+    } catch (error) {
+      console.error(`[Inference Job] Failed for ${projectId}:`, error);
+      // Revert status on error
+      await Project.findByIdAndUpdate(projectId, { status: 'active' }); // Or 'failed' state if we add it
     }
   }
 }

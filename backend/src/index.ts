@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { Database } from './config/database';
 import projectRoutes from './routes/projectRoutes';
+import knowledgeRoutes from './routes/knowledgeRoutes';
+import reconciliationRoutes from './routes/reconciliationRoutes';
 
 dotenv.config();
 
@@ -18,6 +20,8 @@ app.use(express.json());
 
 // Routes
 app.use('/api/projects', projectRoutes);
+app.use('/api/knowledge', knowledgeRoutes);
+app.use('/api/reconciliation', reconciliationRoutes);
 
 // Health Check
 app.get('/health', (req, res) => {

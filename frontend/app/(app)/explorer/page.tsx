@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { CButton } from "@/components/climb/ui";
+import { CButton, SkeletonShimmer } from "@/components/climb/ui";
 import { ProjectCard } from "@/components/climb/dashboard/project-card";
 import {
   PlusIcon,
@@ -11,7 +11,7 @@ import {
   ChevronRightIcon,
   MoreHorizontalIcon,
 } from "@/components/climb/icons";
-import { getAllProjects, type ProjectStatus } from "@/lib/mock-data";
+import { useProjects } from "@/hooks/use-projects";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -31,49 +31,28 @@ export default function ExplorerIndexPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const allProjects = useMemo(() => getAllProjects(), []);
+  // Fetch real data with backend pagination & filtering
+  const { data: projectResponse, isLoading } = useProjects({
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+    status: activeFilter === 'all' ? undefined : activeFilter,
+    search: searchQuery || undefined,
+  });
 
-  const filteredProjects = useMemo(() => {
-    let projects = allProjects;
-
-    if (activeFilter !== "all") {
-      projects = projects.filter((p) => p.status === activeFilter);
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      projects = projects.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.location.toLowerCase().includes(q) ||
-          p.minerals.some((m) => m.toLowerCase().includes(q)),
-      );
-    }
-
-    return projects;
-  }, [activeFilter, allProjects, searchQuery]);
-
-  // Reset to page 1 when filter or search changes
-  const totalPages = Math.max(1, Math.ceil(filteredProjects.length / ITEMS_PER_PAGE));
+  const allProjects = projectResponse?.data || [];
+  const totalPages = projectResponse?.meta?.pages || 1;
   const safePage = Math.min(currentPage, totalPages);
-  const paginatedProjects = filteredProjects.slice(
-    (safePage - 1) * ITEMS_PER_PAGE,
-    safePage * ITEMS_PER_PAGE,
-  );
 
-  // Counts per status
-  const countByStatus = useMemo(() => {
-    const counts: Record<FilterTab, number> = {
-      active: 0,
-      finished: 0,
-      inactive: 0,
-      all: allProjects.length,
-    };
-    for (const p of allProjects) {
-      counts[p.status as ProjectStatus]++;
-    }
-    return counts;
-  }, [allProjects]);
+  // Counts per status (Still simulated for now unless we add a specific aggregation endpoint)
+  // Or we fetch all once? For scalability, we shouldn't fetch all.
+  // For now, let's just use static or simplified counts if not available from API.
+  // Let's hide the counts for MVP to be safe or mock them.
+  const countByStatus: Record<string, string> = {
+    active: "-",
+    finished: "-",
+    inactive: "-",
+    all: "-"
+  };
 
   function handleFilterChange(tab: FilterTab) {
     setActiveFilter(tab);
@@ -148,16 +127,7 @@ export default function ExplorerIndexPage() {
               )}
             >
               {tab.label}
-              <span
-                className={cn(
-                  "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
-                  activeFilter === tab.id
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {countByStatus[tab.id]}
-              </span>
+              {/* Count hidden for now as it requires aggregation endpoint */}
             </button>
           ))}
         </div>
@@ -187,8 +157,7 @@ export default function ExplorerIndexPage() {
                 : "Inactive Projects"}
         </h2>
         <span className="text-xs text-muted-foreground">
-          {filteredProjects.length} project
-          {filteredProjects.length !== 1 ? "s" : ""}
+          {allProjects.length} visible
           {totalPages > 1 && (
             <>
               {" | Page "}{safePage}{" of "}{totalPages}
@@ -198,10 +167,20 @@ export default function ExplorerIndexPage() {
       </div>
 
       {/* Project Grid */}
-      {paginatedProjects.length > 0 ? (
+      {isLoading ? (
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {paginatedProjects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+           {Array.from({ length: 6 }).map((_, i) => (
+             <div key={i} className="h-48 rounded-xl border border-border bg-card p-6">
+               <SkeletonShimmer className="h-6 w-1/2 mb-4" />
+               <SkeletonShimmer className="h-4 w-full mb-2" />
+               <SkeletonShimmer className="h-4 w-2/3" />
+             </div>
+           ))}
+        </div>
+      ) : allProjects.length > 0 ? (
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {allProjects.map((project) => (
+            <ProjectCard key={project.id} project={project as any} />
           ))}
         </div>
       ) : (

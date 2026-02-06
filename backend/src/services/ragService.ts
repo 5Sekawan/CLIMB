@@ -1,6 +1,7 @@
 import { bigquery, embeddingModel } from '../config/gcp';
 const pdfParse = require('pdf-parse');
 import dotenv from 'dotenv';
+import { DocumentModel } from '../models/Document';
 
 dotenv.config();
 
@@ -52,9 +53,9 @@ export class RAGService {
   /**
    * Ingests a PDF document into the Knowledge Base
    */
-  static async ingestDocument(fileBuffer: Buffer, metadata: any, location?: string): Promise<void> {
+  static async ingestDocument(fileBuffer: Buffer, metadata: any, documentId: string, location?: string): Promise<void> {
     try {
-      console.log('Parsing PDF...');
+      console.log(`[RAG] Starting ingestion for doc: ${documentId}`);
       const data = await pdfParse(fileBuffer);
       const fullText = data.text;
 
@@ -67,7 +68,7 @@ export class RAGService {
         chunks.push(fullText.substring(i, i + chunkSize));
       }
 
-      console.log(`Generated ${chunks.length} chunks. Generating embeddings...`);
+      console.log(`[RAG] Generated ${chunks.length} chunks. Generating embeddings...`);
 
       const rowsToInsert = [];
       for (const [index, chunk] of chunks.entries()) {
@@ -77,9 +78,9 @@ export class RAGService {
         const embedding = await this.generateEmbedding(chunk);
         
         rowsToInsert.push({
-          id: `${metadata.filename}-${index}-${Date.now()}`,
+          id: `${documentId}-${index}`,
           content: chunk,
-          metadata: JSON.stringify({ ...metadata, chunkIndex: index }),
+          metadata: JSON.stringify({ ...metadata, chunkIndex: index, documentId }),
           // If location is provided, use it (WKT format), else null
           location: location ? bigquery.geography(location) : null, 
           embedding: embedding
@@ -88,11 +89,25 @@ export class RAGService {
 
       if (rowsToInsert.length > 0) {
         await bigquery.dataset(datasetId!).table(tableId!).insert(rowsToInsert);
-        console.log(`Successfully inserted ${rowsToInsert.length} chunks to Knowledge Base.`);
+        console.log(`[RAG] Successfully inserted ${rowsToInsert.length} chunks to Knowledge Base.`);
+        
+        // Update Status in MongoDB
+        await DocumentModel.findByIdAndUpdate(documentId, {
+          status: 'ready',
+          chunkCount: rowsToInsert.length
+        });
+      } else {
+        console.warn('[RAG] No valid chunks to insert.');
+        await DocumentModel.findByIdAndUpdate(documentId, {
+          status: 'error'
+        });
       }
 
     } catch (error) {
       console.error('Error ingesting document:', error);
+      await DocumentModel.findByIdAndUpdate(documentId, {
+        status: 'error'
+      });
       throw new Error('Document ingestion failed');
     }
   }

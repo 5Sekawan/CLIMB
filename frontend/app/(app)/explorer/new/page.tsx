@@ -16,6 +16,7 @@ import { Toast } from "@/components/climb/toast";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useCreateProject, useUploadDocument } from "@/hooks/use-projects";
 
 // ─── Coordinate Helpers ──────────────────────────────────────
 function parseCoordinates(input: string): { lat: number; lng: number } | null {
@@ -69,24 +70,16 @@ function pixelToLatLng(x: number, y: number, width: number, height: number) {
   };
 }
 
-// ─── Mock Knowledge Base Documents ───────────────────────────
+// ─── Document Interface ──────────────────────────────────────
 interface KBDocument {
   id: string;
   name: string;
-  type: "PDF" | "CSV" | "VEC" | "TIFF";
+  type: string;
   size: string;
   chunks: number;
   selected: boolean;
+  status: 'uploading' | 'ready' | 'error';
 }
-
-const defaultDocs: KBDocument[] = [
-  { id: "kb-1", name: "NI 43-101 Technical Report - East Kalimantan 2023", type: "PDF", size: "4.2 MB", chunks: 347, selected: true },
-  { id: "kb-2", name: "USGS Mineral Resources Data System - Indonesia", type: "CSV", size: "12.8 MB", chunks: 1240, selected: true },
-  { id: "kb-3", name: "Geological Survey of Indonesia - Sulawesi Region", type: "PDF", size: "8.1 MB", chunks: 582, selected: false },
-  { id: "kb-4", name: "Epithermal Gold Systems - Classification Guide", type: "PDF", size: "2.3 MB", chunks: 198, selected: true },
-  { id: "kb-5", name: "SWIR Spectral Analysis Methodology Paper", type: "PDF", size: "1.7 MB", chunks: 142, selected: false },
-  { id: "kb-6", name: "Lessons Learned - Thermal Bias Correction (Auto)", type: "VEC", size: "0.4 MB", chunks: 7, selected: true },
-];
 
 // ─── Small Icons ─────────────────────────────────────────────
 function TrashIcon({ className }: { className?: string }) {
@@ -119,6 +112,11 @@ function GripIcon({ className }: { className?: string }) {
 export default function CreateNewAOIPage() {
   const router = useRouter();
   const mapRef = useRef<SVGSVGElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Hooks
+  const createProject = useCreateProject();
+  const uploadDocument = useUploadDocument();
 
   // Step state (4 steps)
   const [currentStep, setCurrentStep] = useState(0);
@@ -135,13 +133,13 @@ export default function CreateNewAOIPage() {
   const [draggingPinIndex, setDraggingPinIndex] = useState<number | null>(null);
 
   // Step 3: Knowledge Base
-  const [documents, setDocuments] = useState<KBDocument[]>(defaultDocs);
+  const [documents, setDocuments] = useState<KBDocument[]>([]);
   const [uploadDragOver, setUploadDragOver] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; size: string }[]>([]);
 
   // Toast / Saving
   const [toastVisible, setToastVisible] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState<"success" | "error">("success");
 
   const steps = [
     { label: "Project Name", description: "Enter a name for the Area of Interest" },
@@ -221,47 +219,91 @@ export default function CreateNewAOIPage() {
     setDraggingPinIndex(null);
   }, []);
 
-  // ─── Step 3 handlers ────────────────────────────────────
+  // ─── Step 3 handlers (Upload) ────────────────────────────
   const toggleDocument = useCallback((docId: string) => {
     setDocuments((prev) =>
       prev.map((d) => (d.id === docId ? { ...d, selected: !d.selected } : d))
     );
   }, []);
 
-  const handleFakeUpload = useCallback(() => {
-    const fakeName = `uploaded-document-${uploadedFiles.length + 1}.pdf`;
-    setUploadedFiles((prev) => [...prev, { name: fakeName, size: "2.1 MB" }]);
+  const processFile = useCallback(async (file: File) => {
+    const tempId = `temp-${Date.now()}`;
+    const fileSize = (file.size / 1024 / 1024).toFixed(1) + " MB";
+    
+    // Optimistic UI
     setDocuments((prev) => [
       ...prev,
       {
-        id: `uploaded-${Date.now()}`,
-        name: fakeName,
-        type: "PDF",
-        size: "2.1 MB",
+        id: tempId,
+        name: file.name,
+        type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
+        size: fileSize,
         chunks: 0,
         selected: true,
+        status: 'uploading'
       },
     ]);
-  }, [uploadedFiles.length]);
+
+    try {
+      const result = await uploadDocument.mutateAsync(file);
+      // Update with real data
+      setDocuments(prev => prev.map(d => d.id === tempId ? {
+        ...d,
+        id: result.id,
+        status: 'ready'
+      } : d));
+    } catch (err) {
+      console.error("Upload failed", err);
+      setDocuments(prev => prev.map(d => d.id === tempId ? { ...d, status: 'error' } : d));
+      setToastMessage(`Failed to upload ${file.name}`);
+      setToastType("error");
+      setToastVisible(true);
+    }
+  }, [uploadDocument]);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFile(e.target.files[0]);
+    }
+  }, [processFile]);
+
+  const triggerFileUpload = () => {
+    fileInputRef.current?.click();
+  };
 
   // ─── Navigation ─────────────────────────────────────────
   const canProceed =
     currentStep === 0
       ? projectName.trim().length >= 2
       : currentStep === 1
-        ? pins.length >= 1
+        ? pins.length >= 3 // Enforce 3 pins for valid polygon
         : currentStep === 2
-          ? documents.some((d) => d.selected)
+          ? true // Document optional
           : true;
 
   const handleSave = useCallback(() => {
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      setToastVisible(true);
-      setTimeout(() => router.push("/explorer"), 2000);
-    }, 1200);
-  }, [router]);
+    if (projectName.length < 3 || pins.length < 3) return;
+
+    createProject.mutate({
+      name: projectName,
+      pins: pins,
+      selectedDocuments: documents
+        .filter(d => d.selected && d.status === 'ready')
+        .map(d => d.id)
+    }, {
+      onSuccess: () => {
+        setToastMessage("Project saved successfully! Redirecting...");
+        setToastType("success");
+        setToastVisible(true);
+        setTimeout(() => router.push("/explorer"), 2000);
+      },
+      onError: (err: any) => {
+        setToastMessage(err.message || "Failed to create project");
+        setToastType("error");
+        setToastVisible(true);
+      }
+    });
+  }, [createProject, projectName, pins, documents, router]);
 
   // ─── Map polygon points ─────────────────────────────────
   const pinPixels = pins.map((p) => latLngToPixel(p.lat, p.lng));
@@ -269,6 +311,15 @@ export default function CreateNewAOIPage() {
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+      {/* Hidden File Input */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleFileChange} 
+        className="hidden" 
+        accept=".pdf,.csv,.txt"
+      />
+
       {/* ── Top Bar ────────────────────────────────────────── */}
       <div className="flex items-center gap-3 border-b border-border bg-card/60 px-4 py-2.5">
         <Link
@@ -454,9 +505,11 @@ export default function CreateNewAOIPage() {
                   onDrop={(e) => {
                     e.preventDefault();
                     setUploadDragOver(false);
-                    handleFakeUpload();
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      processFile(e.dataTransfer.files[0]);
+                    }
                   }}
-                  onClick={handleFakeUpload}
+                  onClick={triggerFileUpload}
                 >
                   <UploadIcon className="h-6 w-6 text-muted-foreground" />
                   <div>
@@ -492,6 +545,7 @@ export default function CreateNewAOIPage() {
                             ? "border-climb-mint/30 bg-climb-mint-subtle"
                             : "border-border bg-card hover:bg-muted/30"
                         )}
+                        disabled={doc.status === 'uploading'}
                       >
                         <div
                           className={cn(
@@ -515,16 +569,19 @@ export default function CreateNewAOIPage() {
                             {doc.name}
                           </span>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <CBadge variant={doc.type === "VEC" ? "ore" : "default"}>
-                              {doc.type}
-                            </CBadge>
-                            <span className="text-[10px] text-muted-foreground">
-                              {doc.size}
-                            </span>
-                            {doc.chunks > 0 && (
-                              <span className="font-mono text-[10px] text-muted-foreground">
-                                {doc.chunks} chunks
-                              </span>
+                            {doc.status === 'uploading' ? (
+                              <span className="text-[10px] text-climb-mint animate-pulse">Uploading...</span>
+                            ) : doc.status === 'error' ? (
+                              <span className="text-[10px] text-destructive">Failed</span>
+                            ) : (
+                              <>
+                                <CBadge variant={doc.type === "VEC" ? "ore" : "default"}>
+                                  {doc.type}
+                                </CBadge>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {doc.size}
+                                </span>
+                              </>
                             )}
                           </div>
                         </div>
@@ -587,13 +644,6 @@ export default function CreateNewAOIPage() {
                       <p className="mt-0.5 text-sm text-foreground">
                         {documents.filter((d) => d.selected).length} documents selected
                       </p>
-                      <p className="font-mono text-xs text-muted-foreground mt-0.5">
-                        {documents
-                          .filter((d) => d.selected)
-                          .reduce((sum, d) => sum + d.chunks, 0)
-                          .toLocaleString()}{" "}
-                        total chunks
-                      </p>
                     </div>
                     <div className="h-px bg-border" />
                     <div>
@@ -645,11 +695,11 @@ export default function CreateNewAOIPage() {
                 <CButton
                   variant="solid"
                   size="md"
-                  disabled={saving}
+                  disabled={createProject.isPending}
                   onClick={handleSave}
                   className="flex-1"
                 >
-                  {saving ? (
+                  {createProject.isPending ? (
                     <>
                       <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -960,8 +1010,8 @@ export default function CreateNewAOIPage() {
 
       {/* Toast */}
       <Toast
-        message="Project saved successfully! Redirecting to Explorer..."
-        type="success"
+        message={toastMessage}
+        type={toastType}
         visible={toastVisible}
         onClose={() => setToastVisible(false)}
       />

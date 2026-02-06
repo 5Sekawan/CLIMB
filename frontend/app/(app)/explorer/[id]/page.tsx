@@ -7,7 +7,7 @@ import { FloatingTools } from "@/components/climb/explorer/floating-tools";
 import { ControlSidebar } from "@/components/climb/explorer/control-sidebar";
 import { IntelligencePanel } from "@/components/climb/explorer/intelligence-panel";
 import { OperationalCockpit } from "@/components/climb/explorer/operational-cockpit";
-import { getProjectDetail } from "@/lib/mock-data";
+import { useProjectDetail } from "@/hooks/use-projects";
 import { MountainIcon, ArrowLeftIcon, RecycleIcon } from "@/components/climb/icons";
 import { CButton } from "@/components/climb/ui";
 import Link from "next/link";
@@ -18,9 +18,20 @@ export default function ExplorerPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const project = getProjectDetail(id);
+  const { data: project, isLoading, isError } = useProjectDetail(id);
 
-  if (!project) {
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-climb-mint" />
+          <p className="text-sm text-muted-foreground animate-pulse">Loading Studio...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError || !project) {
     return (
       <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center">
@@ -30,7 +41,7 @@ export default function ExplorerPage({
               Project Not Found
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {"The project \""}{id}{"\" does not exist or has been removed."}
+              {"The project \""}{id}{"\" could not be loaded or does not exist."}
             </p>
           </div>
           <Link href="/explorer">
@@ -43,7 +54,7 @@ export default function ExplorerPage({
     );
   }
 
-  return <ExplorerStudio project={project} />;
+  return <ExplorerStudio project={project as any} />;
 }
 
 function ExplorerStudio({
