@@ -5,15 +5,10 @@ import { ClimbLogo, SearchIcon, SettingsIcon } from "./icons";
 import { AIStatusBadge } from "./ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { getActiveProjects } from "@/lib/mock-data";
-
-// Use the first active project as default entry point for Explorer & Reconciliation
-const firstActiveId = getActiveProjects()[0]?.id ?? "pit-berau-x";
-
 const navLinks = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: `/explorer/${firstActiveId}`, label: "Explorer", matchPrefix: "/explorer" },
-  { href: `/reconciliation/${firstActiveId}`, label: "Reconciliation", matchPrefix: "/reconciliation" },
+  { href: "/explorer", label: "Explorer", matchPrefix: "/explorer" },
+  { href: "/reconciliation", label: "Reconciliation", matchPrefix: "/reconciliation" },
   { href: "/settings", label: "Settings" },
 ];
 

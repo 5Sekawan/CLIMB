@@ -8,7 +8,7 @@ import { ControlSidebar } from "@/components/climb/explorer/control-sidebar";
 import { IntelligencePanel } from "@/components/climb/explorer/intelligence-panel";
 import { OperationalCockpit } from "@/components/climb/explorer/operational-cockpit";
 import { getProjectDetail } from "@/lib/mock-data";
-import { MountainIcon } from "@/components/climb/icons";
+import { MountainIcon, ArrowLeftIcon, RecycleIcon } from "@/components/climb/icons";
 import { CButton } from "@/components/climb/ui";
 import Link from "next/link";
 
@@ -33,9 +33,9 @@ export default function ExplorerPage({
               {"The project \""}{id}{"\" does not exist or has been removed."}
             </p>
           </div>
-          <Link href="/dashboard">
+          <Link href="/explorer">
             <CButton variant="solid" size="md">
-              Back to Dashboard
+              Back to Explorer
             </CButton>
           </Link>
         </div>
@@ -46,7 +46,6 @@ export default function ExplorerPage({
   return <ExplorerStudio project={project} />;
 }
 
-// Separate client component to handle state for the project
 function ExplorerStudio({
   project,
 }: {
@@ -59,7 +58,38 @@ function ExplorerStudio({
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
-      <div className="flex flex-1 overflow-hidden">
+      {/* Top bar: back button + project name, with vertical spacing matching the nav gap */}
+      <div className="flex items-center gap-3 border-b border-border bg-card/60 px-4 py-2.5">
+        <Link
+          href="/explorer"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-climb-fast hover:bg-muted hover:text-foreground"
+          aria-label="Back to Explorer"
+        >
+          <ArrowLeftIcon className="h-4 w-4" />
+        </Link>
+        <div className="h-4 w-px bg-border" />
+        <div className="flex items-center gap-2 min-w-0">
+          <MountainIcon className="h-4 w-4 shrink-0 text-climb-mint" />
+          <h1 className="truncate text-sm font-semibold text-foreground">
+            {project.name}
+          </h1>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {project.location}
+          </span>
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          <Link href={`/reconciliation/${project.id}`}>
+            <CButton variant="outline" size="sm">
+              <RecycleIcon className="h-3.5 w-3.5" />
+              Reconciliation Lab
+            </CButton>
+          </Link>
+        </div>
+      </div>
+
+      {/* Main content with padding */}
+      <div className="flex flex-1 overflow-hidden p-2">
         {/* Left Control Sidebar */}
         <ControlSidebar
           project={project}
@@ -69,10 +99,11 @@ function ExplorerStudio({
           onDepthChange={setDepthValue}
           opacityValue={opacityValue}
           onOpacityChange={setOpacityValue}
+          className="rounded-lg"
         />
 
         {/* Main Map Area */}
-        <div className="relative flex-1">
+        <div className="relative mx-2 flex-1 overflow-hidden rounded-lg border border-border">
           <MapCanvas
             selectedMineral={selectedMineral}
             projectName={project.name}
@@ -84,15 +115,18 @@ function ExplorerStudio({
         </div>
 
         {/* Right Intelligence Panel */}
-        <IntelligencePanel project={project} />
+        <IntelligencePanel project={project} className="rounded-lg" />
       </div>
 
       {/* Bottom Operational Cockpit */}
-      <OperationalCockpit
-        cogDefault={project.cogDefault}
-        baseTonnage={project.baseTonnage}
-        baseNetValue={project.baseNetValue}
-      />
+      <div className="px-2 pb-2">
+        <OperationalCockpit
+          cogDefault={project.cogDefault}
+          baseTonnage={project.baseTonnage}
+          baseNetValue={project.baseNetValue}
+          className="rounded-lg"
+        />
+      </div>
     </div>
   );
 }

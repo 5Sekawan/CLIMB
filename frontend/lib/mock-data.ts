@@ -56,6 +56,23 @@ export interface RagContext {
   sourceRef: string;
 }
 
+// ─── Reconciliation Summary (per-project) ────────────────────
+export interface ReconciliationSummary {
+  projectId: string;
+  projectName: string;
+  location: string;
+  minerals: string[];
+  status: ProjectStatus;
+  avgVariance: number;       // g/t or %
+  blocksAnalyzed: number;
+  blocksDrifting: number;
+  blocksStable: number;
+  modelBias: "over-estimation" | "under-estimation" | "balanced";
+  lessonsInjected: number;
+  lastReconciliation: string;
+  driftStatus: DriftStatus;
+}
+
 // ─── All Projects Data ────────────────────────────────────────
 const allProjects: ProjectDetail[] = [
   {
@@ -383,6 +400,240 @@ const allProjects: ProjectDetail[] = [
     baseTonnage: 420000,
     baseNetValue: 5800000,
   },
+  // ── Additional projects to demonstrate pagination ──
+  {
+    id: "pit-aceh-north",
+    name: "Pit Aceh North",
+    location: "Aceh, Sumatra",
+    minerals: ["Au", "Ag"],
+    driftStatus: "stable" as DriftStatus,
+    lastInference: "1 day ago",
+    estimatedTonnage: "1.1M",
+    confidence: 0.80,
+    status: "active" as ProjectStatus,
+    center: "5.5500N, 95.3222E",
+    area: "8.0 km²",
+    elevation: "650m ASL",
+    lastSyncedAt: "2026-01-30T09:00:00Z",
+    mineralLayers: [
+      { id: "Au", label: "Gold (Au)", color: "bg-yellow-500" },
+      { id: "Ag", label: "Silver (Ag)", color: "bg-gray-300" },
+    ],
+    nearestDeposits: [
+      { name: "Meulaboh Deposit", distance: "18 km NE", grade: "3.4 g/t Au", source: "Geomin 2024" },
+    ],
+    ragContext: {
+      shortText: "Aceh North region shows orogenic gold potential within metamorphic basement terranes.",
+      longText: "Structural analysis reveals NW-SE trending shear zones controlling gold mineralization. Artisanal mining reports suggest average grades of 2.5-4.0 g/t Au in quartz veins.",
+      sourceRef: "aceh_gold_prospect.pdf (p.12)",
+    },
+    aiSummary: "Orogenic gold system with shear-hosted mineralization. Early-stage exploration shows promising structural controls and surface geochemistry.",
+    baseGradeRange: "1.5-4.0 g/t Au",
+    depthRange: "15-120m",
+    cogDefault: 1.0,
+    baseTonnage: 900000,
+    baseNetValue: 12000000,
+  },
+  {
+    id: "pit-maluku-central",
+    name: "Pit Maluku Central",
+    location: "Maluku, Indonesia",
+    minerals: ["Cu", "Au"],
+    driftStatus: "drifting" as DriftStatus,
+    lastInference: "3 hours ago",
+    estimatedTonnage: "3.8M",
+    confidence: 0.71,
+    status: "active" as ProjectStatus,
+    center: "-3.2100S, 130.1900E",
+    area: "12.4 km²",
+    elevation: "220m ASL",
+    lastSyncedAt: "2026-02-05T14:00:00Z",
+    mineralLayers: [
+      { id: "Cu", label: "Copper (Cu)", color: "bg-orange-500" },
+      { id: "Au", label: "Gold (Au)", color: "bg-yellow-500" },
+    ],
+    nearestDeposits: [
+      { name: "Wetar Cu-Au", distance: "45 km E", grade: "1.8% Cu", source: "USGS 2023" },
+    ],
+    ragContext: {
+      shortText: "Maluku Central hosts volcanic-hosted massive sulfide (VHMS) Cu-Au mineralization in Neogene arc volcanics.",
+      longText: "Magnetic and IP surveys delineate massive sulfide horizons at 50-200m depth. Surface gossans show Cu-enrichment above 1.2% threshold.",
+      sourceRef: "maluku_vhms.pdf (p.33)",
+    },
+    aiSummary: "VHMS copper-gold system with sulfide lenses at moderate depth. IP anomalies correlate well with known mineralization and warrant drill testing.",
+    baseGradeRange: "0.8-2.5% Cu, 0.5-1.2 g/t Au",
+    depthRange: "50-200m",
+    cogDefault: 0.5,
+    baseTonnage: 2800000,
+    baseNetValue: 28000000,
+  },
+  {
+    id: "pit-flores-east",
+    name: "Pit Flores East",
+    location: "NTT, Indonesia",
+    minerals: ["Mn", "Au"],
+    driftStatus: "stable" as DriftStatus,
+    lastInference: "12 hours ago",
+    estimatedTonnage: "0.9M",
+    confidence: 0.65,
+    status: "active" as ProjectStatus,
+    center: "-8.6500S, 122.2300E",
+    area: "5.5 km²",
+    elevation: "380m ASL",
+    lastSyncedAt: "2026-02-04T20:00:00Z",
+    mineralLayers: [
+      { id: "Mn", label: "Manganese (Mn)", color: "bg-gray-600" },
+      { id: "Au", label: "Gold (Au)", color: "bg-yellow-500" },
+    ],
+    nearestDeposits: [
+      { name: "Ende Mn Mine", distance: "30 km W", grade: "42% Mn", source: "Local Survey 2024" },
+    ],
+    ragContext: {
+      shortText: "Flores East contains supergene manganese deposits capping epithermal gold veins.",
+      longText: "Mn-oxide cap covers low-sulfidation epithermal Au veins at depth. Trenching shows 1.2-3.0 g/t Au below the manganese horizon.",
+      sourceRef: "flores_mn_au.pdf (p.8)",
+    },
+    aiSummary: "Dual commodity opportunity: near-surface manganese with underlying epithermal gold. Requires deeper drilling to confirm Au resource beneath Mn cap.",
+    baseGradeRange: "35-48% Mn, 0.8-3.0 g/t Au",
+    depthRange: "5-80m",
+    cogDefault: 0.8,
+    baseTonnage: 600000,
+    baseNetValue: 7500000,
+  },
+  {
+    id: "pit-kalteng-south",
+    name: "Pit Kalteng South",
+    location: "Central Kalimantan",
+    minerals: ["Fe", "Au"],
+    driftStatus: "stable" as DriftStatus,
+    lastInference: "2 days ago",
+    estimatedTonnage: "5.2M",
+    confidence: 0.73,
+    status: "active" as ProjectStatus,
+    center: "-2.2500S, 114.1500E",
+    area: "18.0 km²",
+    elevation: "45m ASL",
+    lastSyncedAt: "2026-02-03T10:00:00Z",
+    mineralLayers: [
+      { id: "Fe", label: "Iron (Fe)", color: "bg-red-700" },
+      { id: "Au", label: "Gold (Au)", color: "bg-yellow-500" },
+    ],
+    nearestDeposits: [
+      { name: "Muara Teweh Fe", distance: "22 km N", grade: "58% Fe", source: "GeoIndo 2025" },
+    ],
+    ragContext: {
+      shortText: "Central Kalimantan lateritic iron deposits with secondary gold enrichment in paleo-channel systems.",
+      longText: "Gravity and magnetic surveys delineate deep laterite profiles (15-30m) with iron content >55%. Alluvial gold sampling in adjacent drainages returns 0.3-1.5 g/t Au.",
+      sourceRef: "kalteng_laterite.pdf (p.22)",
+    },
+    aiSummary: "Large-tonnage iron laterite with alluvial gold potential. Bulk tonnage model suits open-pit extraction. Gold by-product adds economic value.",
+    baseGradeRange: "52-62% Fe, 0.2-1.5 g/t Au",
+    depthRange: "5-35m",
+    cogDefault: 45.0,
+    baseTonnage: 4500000,
+    baseNetValue: 18000000,
+  },
+  {
+    id: "pit-gorontalo-west",
+    name: "Pit Gorontalo West",
+    location: "Gorontalo, Sulawesi",
+    minerals: ["Au", "Cu", "Mo"],
+    driftStatus: "drifting" as DriftStatus,
+    lastInference: "6 hours ago",
+    estimatedTonnage: "2.1M",
+    confidence: 0.77,
+    status: "active" as ProjectStatus,
+    center: "0.6500N, 122.4500E",
+    area: "9.8 km²",
+    elevation: "500m ASL",
+    lastSyncedAt: "2026-02-05T08:00:00Z",
+    mineralLayers: [
+      { id: "Au", label: "Gold (Au)", color: "bg-yellow-500" },
+      { id: "Cu", label: "Copper (Cu)", color: "bg-orange-500" },
+      { id: "Mo", label: "Molybdenum (Mo)", color: "bg-violet-400" },
+    ],
+    nearestDeposits: [
+      { name: "Suwawa Porphyry", distance: "12 km SE", grade: "0.6% Cu, 0.4 g/t Au", source: "J-Resources 2024" },
+    ],
+    ragContext: {
+      shortText: "Gorontalo West shows classic porphyry Cu-Au-Mo indicators including phyllic alteration and quartz stockwork.",
+      longText: "IP chargeability highs correlate with potassic alteration core at depth. Surface Cu-in-soil anomaly exceeds 500 ppm over 2 km strike length. Mo enrichment at 100-150 ppm indicates porphyry root zone.",
+      sourceRef: "gorontalo_porphyry.pdf (p.41)",
+    },
+    aiSummary: "High-potential porphyry Cu-Au-Mo target with strong geophysical and geochemical signatures. Drill program recommended for confirmation of hypogene mineralization.",
+    baseGradeRange: "0.3-0.9% Cu, 0.2-0.8 g/t Au",
+    depthRange: "80-400m",
+    cogDefault: 0.25,
+    baseTonnage: 1800000,
+    baseNetValue: 22000000,
+  },
+  {
+    id: "pit-halmahera-south",
+    name: "Pit Halmahera South",
+    location: "North Maluku",
+    minerals: ["Ni", "Co"],
+    driftStatus: "stable" as DriftStatus,
+    lastInference: "1 day ago",
+    estimatedTonnage: "6.5M",
+    confidence: 0.82,
+    status: "finished" as ProjectStatus,
+    center: "0.0500N, 127.8900E",
+    area: "22.0 km²",
+    elevation: "120m ASL",
+    lastSyncedAt: "2026-01-15T12:00:00Z",
+    mineralLayers: [
+      { id: "Ni", label: "Nickel (Ni)", color: "bg-emerald-600" },
+      { id: "Co", label: "Cobalt (Co)", color: "bg-blue-500" },
+    ],
+    nearestDeposits: [
+      { name: "Weda Bay Ni", distance: "35 km SW", grade: "1.6% Ni", source: "Eramet 2024" },
+    ],
+    ragContext: {
+      shortText: "Halmahera South lateritic nickel with cobalt enrichment in limonite zone, part of the Halmahera ophiolite belt.",
+      longText: "Laterite profile 20-40m thick over ultramafic basement. Limonite zone averages 1.2% Ni and 0.1% Co. Saprolite zone grades up to 1.8% Ni. Full resource estimate completed.",
+      sourceRef: "halmahera_ni.pdf (p.60)",
+    },
+    aiSummary: "Completed lateritic Ni-Co resource model with high confidence. HPAL processing route recommended for limonite; DSO for saprolite. Project ready for feasibility.",
+    baseGradeRange: "1.0-2.0% Ni, 0.05-0.15% Co",
+    depthRange: "5-40m",
+    cogDefault: 0.8,
+    baseTonnage: 5500000,
+    baseNetValue: 42000000,
+  },
+  {
+    id: "pit-mimika-highland",
+    name: "Pit Mimika Highland",
+    location: "Papua, Indonesia",
+    minerals: ["Cu", "Au", "Ag"],
+    driftStatus: "stable" as DriftStatus,
+    lastInference: "5 days ago",
+    estimatedTonnage: "8.0M",
+    confidence: 0.88,
+    status: "finished" as ProjectStatus,
+    center: "-4.0600S, 137.1100E",
+    area: "15.0 km²",
+    elevation: "3200m ASL",
+    lastSyncedAt: "2025-12-20T10:00:00Z",
+    mineralLayers: [
+      { id: "Cu", label: "Copper (Cu)", color: "bg-orange-500" },
+      { id: "Au", label: "Gold (Au)", color: "bg-yellow-500" },
+      { id: "Ag", label: "Silver (Ag)", color: "bg-gray-300" },
+    ],
+    nearestDeposits: [
+      { name: "Grasberg Complex", distance: "8 km NW", grade: "1.0% Cu, 1.0 g/t Au", source: "Freeport 2024" },
+    ],
+    ragContext: {
+      shortText: "Highland Papua porphyry-skarn Cu-Au system adjacent to the world-class Grasberg district.",
+      longText: "Skarn and porphyry mineralization confirmed by diamond drilling. Average intercepts of 0.8% Cu and 0.6 g/t Au over 200m widths. Full block model validated against production data.",
+      sourceRef: "mimika_porphyry.pdf (p.88)",
+    },
+    aiSummary: "World-class porphyry-skarn system with validated resource model. High-confidence block model shows excellent reconciliation with actual production data. Fully handed off to mine planning.",
+    baseGradeRange: "0.5-1.5% Cu, 0.3-1.2 g/t Au",
+    depthRange: "100-600m",
+    cogDefault: 0.3,
+    baseTonnage: 7000000,
+    baseNetValue: 85000000,
+  },
 ];
 
 // ─── Data Access Functions (simulate backend API) ─────────────
@@ -499,4 +750,35 @@ export function getRecentActivity(): ActivityItem[] {
       timestamp: "1 day ago",
     },
   ];
+}
+
+// ─── Reconciliation Summaries (per-project) ──────────────────
+
+const reconciliationData: ReconciliationSummary[] = allProjects.map((p, idx) => {
+  // Generate deterministic reconciliation stats from project data
+  const seed = idx * 7 + 3;
+  const biasOptions: ReconciliationSummary["modelBias"][] = ["over-estimation", "under-estimation", "balanced"];
+  return {
+    projectId: p.id,
+    projectName: p.name,
+    location: p.location,
+    minerals: p.minerals,
+    status: p.status,
+    avgVariance: parseFloat((((seed * 13) % 100 - 50) / 100).toFixed(2)),
+    blocksAnalyzed: 50 + ((seed * 17) % 200),
+    blocksDrifting: ((seed * 11) % 15),
+    blocksStable: 50 + ((seed * 17) % 200) - ((seed * 11) % 15),
+    modelBias: biasOptions[seed % 3],
+    lessonsInjected: 1 + ((seed * 7) % 12),
+    lastReconciliation: p.lastInference,
+    driftStatus: p.driftStatus,
+  };
+});
+
+export function getAllReconciliations(): ReconciliationSummary[] {
+  return reconciliationData;
+}
+
+export function getReconciliationByProject(projectId: string): ReconciliationSummary | undefined {
+  return reconciliationData.find((r) => r.projectId === projectId);
 }
