@@ -1,9 +1,24 @@
 import type { Request, Response } from 'express';
 import { parse } from 'csv-parse/sync';
+import { z } from 'zod';
 import { ReconciliationService, ActualData } from '../services/reconciliationService';
 import { Project } from '../models/Project';
 import { bigquery, generativeModel } from '../config/gcp';
 import { RAGService } from '../services/ragService';
+
+// --- Validation Schemas ---
+const uploadActualsSchema = z.object({
+  projectId: z.string().min(1, "Project ID is required"),
+});
+
+const injectFeedbackSchema = z.object({
+  projectId: z.string().optional(),
+  lesson: z.string().min(5, "Lesson text is too short"),
+  location: z.object({
+    lat: z.number(),
+    lon: z.number()
+  })
+});
 
 export class ReconciliationController {
   
@@ -17,10 +32,13 @@ export class ReconciliationController {
         return res.status(400).json({ error: 'No CSV file uploaded' });
       }
 
-      const { projectId } = req.body;
-      if (!projectId) {
-        return res.status(400).json({ error: 'Project ID is required' });
+      // Validate Body
+      const validation = uploadActualsSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ error: validation.error.format() });
       }
+      
+      const { projectId } = validation.data;
 
       const project = await Project.findById(projectId).select('+inferenceResults');
       if (!project || !project.inferenceResults) {
@@ -85,11 +103,13 @@ export class ReconciliationController {
    */
   static async injectFeedback(req: Request, res: Response) {
     try {
-      const { projectId, lesson, location } = req.body; // location: { lat, lon }
-
-      if (!lesson || !location) {
-        return res.status(400).json({ error: 'Lesson text and location (lat, lon) are required' });
+      // Validate Body
+      const validation = injectFeedbackSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ error: validation.error.format() });
       }
+
+      const { projectId, lesson, location } = validation.data;
 
       // Generate embedding for the lesson
       const embedding = await RAGService.generateEmbedding(lesson);
@@ -102,7 +122,7 @@ export class ReconciliationController {
         content: lesson,
         metadata: JSON.stringify({ 
           type: 'manual-feedback', 
-          projectId,
+          projectId: projectId || 'global',
           timestamp: new Date().toISOString() 
         }),
         location: bigquery.geography(`POINT(${location.lon} ${location.lat})`),
