@@ -86,6 +86,16 @@ export interface IProject extends Document {
   // --- Economic Defaults ---
   economicParams: IEconomicParams;
 
+  // --- Reconciliation Stats ---
+  reconciliationStats?: {
+    avgVariance: number;
+    blocksAnalyzed: number;
+    blocksDrifting: number;
+    blocksStable: number;
+    modelBias: string;
+    lastReconciliationAt: Date;
+  };
+
   // --- Heavy Data ---
   inferenceResults?: IVoxelData[]; // Hidden by default
 
@@ -198,6 +208,15 @@ const ProjectSchema = new Schema<IProject>({
     miningCost: Number,
     processingCost: Number,
     recoveryRate: Number
+  },
+
+  reconciliationStats: {
+    avgVariance: Number,
+    blocksAnalyzed: Number,
+    blocksDrifting: Number,
+    blocksStable: Number,
+    modelBias: String,
+    lastReconciliationAt: Date
   },
 
   inferenceResults: {

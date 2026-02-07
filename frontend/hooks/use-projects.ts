@@ -31,6 +31,29 @@ const formatTime = (date?: string) => {
   }
 };
 
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  location: string;
+  minerals: string[];
+  driftStatus: DriftStatus;
+  lastInference: string;
+  estimatedTonnage: string;
+  confidence: number;
+  status: ProjectStatus;
+  // Reconciliation specific props
+  reconciliationStats?: {
+    avgVariance: number;
+    blocksAnalyzed: number;
+    blocksDrifting: number;
+    blocksStable: number;
+    modelBias: string;
+    lastReconciliation: string;
+  };
+}
+
+// ... existing code ...
+
 // --- Hooks ---
 
 export function useProjects(params?: { page?: number; status?: string; search?: string }) {
@@ -51,6 +74,15 @@ export function useProjects(params?: { page?: number; status?: string; search?: 
         // Map Backend fields to Frontend expectations
         estimatedTonnage: formatTonnage(p.economicParams?.baseTonnage),
         lastInference: formatTime(p.lastInferenceAt),
+        // Map Reconciliation Stats
+        reconciliationStats: p.reconciliationStats ? {
+          avgVariance: p.reconciliationStats.avgVariance,
+          blocksAnalyzed: p.reconciliationStats.blocksAnalyzed,
+          blocksDrifting: p.reconciliationStats.blocksDrifting,
+          blocksStable: p.reconciliationStats.blocksStable,
+          modelBias: p.reconciliationStats.modelBias,
+          lastReconciliation: formatTime(p.reconciliationStats.lastReconciliationAt)
+        } : undefined
       }));
 
       return { ...data, data: transformedProjects };

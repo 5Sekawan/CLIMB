@@ -19,6 +19,11 @@ export interface ReconciliationSummary {
   status: 'STABLE' | 'DRIFTING';
   lessonsLearned: string;
   blockDetails?: any[]; // Detailed block data for visualization
+  // Extended stats
+  blocksAnalyzed: number;
+  blocksDrifting: number;
+  blocksStable: number;
+  modelBias: 'over-estimation' | 'under-estimation' | 'balanced';
 }
 
 export class ReconciliationService {
@@ -30,6 +35,9 @@ export class ReconciliationService {
     let totalDiffCu = 0;
     let matchCount = 0;
     const blockDetails: any[] = [];
+    
+    // Stats counters
+    let blocksDrifting = 0;
 
     actuals.forEach(actual => {
       // Find nearest predicted voxel based on 3D distance
@@ -52,6 +60,7 @@ export class ReconciliationService {
       });
 
       if (nearest) {
+        // variance = actual - predicted
         const diffAu = actual.actualGradeAu - (nearest.au_grade || 0);
         const diffCu = actual.actualGradeCu - (nearest.cu_grade || 0);
         
@@ -59,13 +68,19 @@ export class ReconciliationService {
         totalDiffCu += diffCu;
         matchCount++;
 
+        // Determine if this specific block is drifting
+        // Thresholds: Au > 0.5 g/t difference, Cu > 1.0 % difference
+        const isDrifting = Math.abs(diffAu) > 0.5 || Math.abs(diffCu) > 1.0;
+        if (isDrifting) blocksDrifting++;
+
         blockDetails.push({
           lat: actual.lat,
           lon: actual.lon,
           z: actual.depth,
           actualAu: actual.actualGradeAu,
           predAu: nearest.au_grade,
-          varianceAu: diffAu
+          varianceAu: diffAu,
+          isDrifting
         });
       }
     });
@@ -73,8 +88,15 @@ export class ReconciliationService {
     const avgDiffAu = matchCount > 0 ? totalDiffAu / matchCount : 0;
     const avgDiffCu = matchCount > 0 ? totalDiffCu / matchCount : 0;
 
-    // Determine Status
+    // Determine Project Status
     const status = (Math.abs(avgDiffAu) > 0.5 || Math.abs(avgDiffCu) > 1.0) ? 'DRIFTING' : 'STABLE';
+
+    // Determine Model Bias
+    // If avgDiff is negative, Actual < Predicted => Over-estimation
+    // If avgDiff is positive, Actual > Predicted => Under-estimation
+    let modelBias: 'over-estimation' | 'under-estimation' | 'balanced' = 'balanced';
+    if (avgDiffAu < -0.2) modelBias = 'over-estimation';
+    else if (avgDiffAu > 0.2) modelBias = 'under-estimation';
 
     // Generate Lessons Learned via Gemini
     const lessonsLearned = await this.generateLessonsLearned(avgDiffAu, avgDiffCu, status);
@@ -89,7 +111,11 @@ export class ReconciliationService {
       varianceCu: avgDiffCu,
       status,
       lessonsLearned,
-      blockDetails
+      blockDetails,
+      blocksAnalyzed: matchCount,
+      blocksDrifting,
+      blocksStable: matchCount - blocksDrifting,
+      modelBias
     };
   }
 

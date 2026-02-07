@@ -80,11 +80,19 @@ export class ReconciliationController {
       // Run Reconciliation
       const summary = await ReconciliationService.reconcile(actuals, project.inferenceResults);
 
-      // Update project drift status
-      if (summary.status === 'DRIFTING') {
-        project.driftStatus = 'drifting';
-        await project.save();
-      }
+      // Update project drift status and stats
+      project.driftStatus = summary.status === 'DRIFTING' ? 'drifting' : 'stable';
+      
+      project.reconciliationStats = {
+        avgVariance: summary.varianceAu, // Primary variance
+        blocksAnalyzed: summary.blocksAnalyzed,
+        blocksDrifting: summary.blocksDrifting,
+        blocksStable: summary.blocksStable,
+        modelBias: summary.modelBias,
+        lastReconciliationAt: new Date()
+      };
+
+      await project.save();
 
       await ActivityService.log(
         'reconciliation', 

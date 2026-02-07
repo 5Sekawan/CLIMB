@@ -8,9 +8,12 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   MoreHorizontalIcon,
+  MountainIcon,
 } from "@/components/climb/icons";
-import { getAllReconciliations, type ProjectStatus } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { useProjects } from "@/hooks/use-projects";
+import { SkeletonShimmer } from "@/components/climb/ui";
+import type { ReconciliationSummary } from "@/lib/mock-data";
 
 type FilterTab = "active" | "finished" | "inactive" | "all";
 
@@ -28,51 +31,37 @@ export default function ReconciliationIndexPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const allRecons = useMemo(() => getAllReconciliations(), []);
+  // Fetch real projects
+  const { data: projectResponse, isLoading } = useProjects({
+    page: currentPage,
+    limit: ITEMS_PER_PAGE,
+    status: activeFilter === 'all' ? undefined : activeFilter,
+    search: searchQuery || undefined,
+  });
 
-  const filteredRecons = useMemo(() => {
-    let items = allRecons;
-
-    if (activeFilter !== "all") {
-      items = items.filter((r) => r.status === activeFilter);
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      items = items.filter(
-        (r) =>
-          r.projectName.toLowerCase().includes(q) ||
-          r.location.toLowerCase().includes(q) ||
-          r.minerals.some((m) => m.toLowerCase().includes(q)),
-      );
-    }
-
-    return items;
-  }, [activeFilter, allRecons, searchQuery]);
-
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredRecons.length / ITEMS_PER_PAGE),
-  );
+  const allProjects = projectResponse?.data || [];
+  const totalPages = projectResponse?.meta?.pages || 1;
   const safePage = Math.min(currentPage, totalPages);
-  const paginatedRecons = filteredRecons.slice(
-    (safePage - 1) * ITEMS_PER_PAGE,
-    safePage * ITEMS_PER_PAGE,
-  );
 
-  // Counts per status
-  const countByStatus = useMemo(() => {
-    const counts: Record<FilterTab, number> = {
-      active: 0,
-      finished: 0,
-      inactive: 0,
-      all: allRecons.length,
-    };
-    for (const r of allRecons) {
-      counts[r.status as ProjectStatus]++;
-    }
-    return counts;
-  }, [allRecons]);
+  // Map projects to ReconciliationSummary for the card
+  const reconciliationData: ReconciliationSummary[] = useMemo(() => {
+    return allProjects.map(p => ({
+      projectId: p.id,
+      projectName: p.name,
+      location: p.location,
+      minerals: p.minerals,
+      status: p.status as any,
+      driftStatus: p.driftStatus as any,
+      // Use real stats if available, otherwise 0/default
+      avgVariance: p.reconciliationStats?.avgVariance ?? 0,
+      blocksAnalyzed: p.reconciliationStats?.blocksAnalyzed ?? 0,
+      blocksDrifting: p.reconciliationStats?.blocksDrifting ?? 0,
+      blocksStable: p.reconciliationStats?.blocksStable ?? 0,
+      modelBias: (p.reconciliationStats?.modelBias as any) ?? "balanced",
+      lessonsInjected: 0, // Not currently tracked in project stats, would need another field
+      lastReconciliation: p.reconciliationStats?.lastReconciliation ?? "Never",
+    }));
+  }, [allProjects]);
 
   function handleFilterChange(tab: FilterTab) {
     setActiveFilter(tab);
@@ -132,16 +121,6 @@ export default function ReconciliationIndexPage() {
               )}
             >
               {tab.label}
-              <span
-                className={cn(
-                  "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
-                  activeFilter === tab.id
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {countByStatus[tab.id]}
-              </span>
             </button>
           ))}
         </div>
@@ -171,8 +150,7 @@ export default function ReconciliationIndexPage() {
                 : "Inactive Projects"}
         </h2>
         <span className="text-xs text-muted-foreground">
-          {filteredRecons.length} project
-          {filteredRecons.length !== 1 ? "s" : ""}
+          {reconciliationData.length} visible
           {totalPages > 1 && (
             <>
               {" | Page "}
@@ -185,9 +163,19 @@ export default function ReconciliationIndexPage() {
       </div>
 
       {/* Reconciliation Card Grid */}
-      {paginatedRecons.length > 0 ? (
+      {isLoading ? (
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {paginatedRecons.map((recon) => (
+           {Array.from({ length: 6 }).map((_, i) => (
+             <div key={i} className="h-48 rounded-xl border border-border bg-card p-6">
+               <SkeletonShimmer className="h-6 w-1/2 mb-4" />
+               <SkeletonShimmer className="h-4 w-full mb-2" />
+               <SkeletonShimmer className="h-4 w-2/3" />
+             </div>
+           ))}
+        </div>
+      ) : reconciliationData.length > 0 ? (
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {reconciliationData.map((recon) => (
             <ReconciliationCard key={recon.projectId} data={recon} />
           ))}
         </div>

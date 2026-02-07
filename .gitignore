@@ -1,11 +1,7 @@
 # Dependency directories
 node_modules/
 jspm_packages/
-<<<<<<< HEAD
 */node_modules/
-=======
-
->>>>>>> origin
 # Build outputs
 dist/
 backend/dist/
@@ -14,6 +10,11 @@ build/
 out/
 bin/
 obj/
+
+# Cache
+cache/
+.cache/
+*.cache/
 
 # TypeScript Generated Files (Prevent committing compiled JS in src)
 backend/src/**/*.js
