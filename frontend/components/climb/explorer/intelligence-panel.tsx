@@ -5,6 +5,7 @@ import {
   InsightCard,
   ConfidenceGauge,
   InferenceLoading,
+  CButton,
 } from "@/components/climb/ui";
 import {
   BrainIcon,
@@ -12,9 +13,11 @@ import {
   GlobeIcon,
   ChevronDownIcon,
   MapPinIcon,
+  RotateIcon,
 } from "@/components/climb/icons";
 import { useState } from "react";
 import type { ProjectDetail } from "@/lib/mock-data";
+import { useStartInference, useInferenceStatus } from "@/hooks/use-projects";
 
 interface IntelligencePanelProps {
   project: ProjectDetail;
@@ -26,6 +29,20 @@ export function IntelligencePanel({
   className,
 }: IntelligencePanelProps) {
   const [ragExpanded, setRagExpanded] = useState(false);
+  const startInference = useStartInference();
+  
+  // Polling status if the project is currently processing or after a manual start
+  const { data: statusData } = useInferenceStatus(
+    project.id, 
+    project.status === 'processing' || startInference.isPending
+  );
+
+  const currentStatus = statusData?.status || project.status;
+  const isProcessing = currentStatus === 'processing';
+
+  const handleStartInference = () => {
+    startInference.mutate(project.id);
+  };
 
   return (
     <aside
@@ -43,6 +60,32 @@ export function IntelligencePanel({
         <span className="ml-auto font-mono text-[10px] text-muted-foreground">
           {project.name}
         </span>
+      </div>
+
+      {/* Action Area */}
+      <div className="border-b border-border p-4 bg-muted/20">
+        <CButton 
+          variant="solid" 
+          size="sm" 
+          className="w-full" 
+          onClick={handleStartInference}
+          disabled={isProcessing}
+        >
+          {isProcessing ? (
+            <>
+              <RotateIcon className="h-3.5 w-3.5 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            <>
+              <BrainIcon className="h-3.5 w-3.5" />
+              Run AI Inference
+            </>
+          )}
+        </CButton>
+        <p className="mt-2 text-[10px] text-center text-muted-foreground leading-tight">
+          Trigger hybrid synthesis of GEE, RAG, and BigQuery data to generate 3D block model.
+        </p>
       </div>
 
       {/* AI Reasoning Card (RAG) -- dynamic from project.ragContext */}

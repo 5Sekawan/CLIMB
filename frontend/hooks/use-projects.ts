@@ -179,6 +179,33 @@ export function useUploadDocument() {
   });
 }
 
+export function useStartInference() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      const { data } = await api.post(`/projects/${projectId}/inference/start`);
+      return data;
+    },
+    onSuccess: (_, projectId) => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    },
+  });
+}
+
+export function useInferenceStatus(projectId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['project-status', projectId],
+    queryFn: async () => {
+      const { data } = await api.get<{ success: boolean; status: string; lastInferenceAt?: string }>(`/projects/${projectId}/status`);
+      return data;
+    },
+    enabled: enabled && !!projectId,
+    refetchInterval: (query) => {
+      return query.state.data?.status === 'processing' ? 3000 : false;
+    },
+  });
+}
+
 export function useUpdateProjectStatus() {
   const queryClient = useQueryClient();
 
