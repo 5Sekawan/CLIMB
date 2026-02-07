@@ -2,17 +2,18 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/auth-context";
 import { CButton, CInput } from "@/components/climb/ui";
 import { api } from "@/lib/api";
-import { Toast } from "@/components/climb/toast";
 
-export default function LoginPage() {
+export default function SignupPage() {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  
   const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -20,8 +21,27 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      setLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const { data } = await api.post("/auth/login", { email, password });
+      const { data } = await api.post("/auth/register", { 
+        name, 
+        email, 
+        password,
+        role: "geologist" // Default role for signup
+      });
+      
+      // Auto login after signup
       login(data.data.token, {
         _id: data.data._id,
         name: data.data.name,
@@ -29,7 +49,7 @@ export default function LoginPage() {
         role: data.data.role
       });
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || "Invalid credentials");
+      setError(err.response?.data?.error?.message || err.response?.data?.error || "Registration failed");
     } finally {
       setLoading(false);
     }
@@ -39,15 +59,26 @@ export default function LoginPage() {
     <div className="animate-fade-in-up">
       <div className="mb-8">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          Welcome back
+          Create an account
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Please sign in to access your dashboard.
+          Get started with AI-powered mining intelligence today.
         </p>
       </div>
 
       <form className="space-y-6" onSubmit={handleSubmit}>
         <div className="space-y-4">
+          <CInput
+            id="name"
+            type="text"
+            label="Full Name"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="John Doe"
+            autoComplete="name"
+          />
+
           <CInput
             id="email"
             type="email"
@@ -59,28 +90,36 @@ export default function LoginPage() {
             autoComplete="email"
           />
           
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
               <label htmlFor="password" class="text-xs font-medium text-muted-foreground">
                 Password
               </label>
-              <Link
-                href="#"
-                className="text-xs font-medium text-climb-mint hover:text-climb-mint-hover"
-              >
-                Forgot password?
-              </Link>
+              <input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="h-10 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground transition-colors duration-climb-fast placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+              />
             </div>
-            <input
-              id="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              autoComplete="current-password"
-              className="h-10 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground transition-colors duration-climb-fast placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
-            />
+            
+            <div className="space-y-1.5">
+              <label htmlFor="confirmPassword" class="text-xs font-medium text-muted-foreground">
+                Confirm Password
+              </label>
+              <input
+                id="confirmPassword"
+                type="password"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                className="h-10 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground transition-colors duration-climb-fast placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
           </div>
         </div>
 
@@ -102,21 +141,21 @@ export default function LoginPage() {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Signing in...
+              Creating account...
             </span>
           ) : (
-            "Sign in"
+            "Create Account"
           )}
         </CButton>
       </form>
 
       <div className="mt-6 text-center text-sm">
-        <span className="text-muted-foreground">Don't have an account? </span>
+        <span className="text-muted-foreground">Already have an account? </span>
         <Link
-          href="/signup"
+          href="/login"
           className="font-medium text-climb-mint hover:text-climb-mint-hover hover:underline"
         >
-          Sign up for free
+          Sign in
         </Link>
       </div>
     </div>
