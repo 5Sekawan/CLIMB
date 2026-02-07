@@ -104,7 +104,7 @@ const AOISchema = new Schema({
     default: 'Polygon'
   },
   coordinates: {
-    type: [[[[Number]]]], 
+    type: [[[Number]]], 
     required: true
   }
 }, { _id: false });
