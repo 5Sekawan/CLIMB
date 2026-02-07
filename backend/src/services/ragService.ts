@@ -1,6 +1,5 @@
 import { bigquery, dataProjectId } from '../config/gcp';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const pdfParse = require('pdf-parse');
+import pdf from 'pdf-parse';
 import dotenv from 'dotenv';
 import { DocumentModel } from '../models/Document';
 import { Logger } from '../utils/logger';
@@ -97,7 +96,7 @@ export class RAGService {
   static async ingestDocument(fileBuffer: Buffer, metadata: any, documentId: string, location?: string): Promise<void> {
     Logger.job('RAGIngestion', 'START', `Processing document: ${documentId}`, { filename: metadata.filename });
     try {
-      const data = await pdfParse(fileBuffer);
+      const data = await pdf(fileBuffer);
       const fullText = data.text;
       Logger.info(`[RAG] PDF parsed successfully. Length: ${fullText.length} chars.`);
 
