@@ -206,7 +206,9 @@ const ProjectSchema = new Schema<IProject>({
   }
 
 }, {
-  timestamps: true 
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
 // Create Model

@@ -20,6 +20,9 @@ const ActivityLogSchema = new Schema<IActivityLog>({
   projectName: { type: String },
   meta: { type: Schema.Types.Mixed },
   timestamp: { type: Date, default: Date.now, index: -1 } // Descending index for feed
+}, {
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
 export const ActivityLog = mongoose.model<IActivityLog>('ActivityLog', ActivityLogSchema);

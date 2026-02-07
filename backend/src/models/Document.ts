@@ -22,6 +22,9 @@ const DocumentSchema = new Schema<IDocument>({
   },
   metadata: { type: Schema.Types.Mixed },
   uploadedAt: { type: Date, default: Date.now }
+}, {
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
 export const DocumentModel = mongoose.model<IDocument>('Document', DocumentSchema);
