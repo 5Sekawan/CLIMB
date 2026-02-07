@@ -100,6 +100,14 @@ export class ProjectController {
       }
 
       const polygon = turf.polygon([coordinates]);
+
+      // Validate Geometry (Prevent Self-Intersection)
+      const kinks = turf.kinks(polygon);
+      if (kinks.features.length > 0) {
+        return res.status(400).json({ 
+          error: "Invalid Polygon: Self-intersection detected. Please ensure the boundary lines do not cross each other." 
+        });
+      }
       
       // 3. Calculate Center & Area
       const centerPt = turf.center(polygon);

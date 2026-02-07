@@ -21,6 +21,7 @@ import {
 import { Toast } from "@/components/climb/toast";
 import { cn, parseCoordinates } from "@/lib/utils";
 import { useCreateProject, useUploadDocument } from "@/hooks/use-projects";
+import { kinks, polygon } from "@turf/turf";
 
 // ─── Constants ────────────────────────────────────────────────
 const INDONESIA_CENTER = { lat: -2.5489, lng: 118.0149 };
@@ -162,6 +163,26 @@ export default function CreateNewAOIPage() {
 
   const handleSave = useCallback(() => {
     if (projectName.length < 3 || pins.length < 3) return;
+
+    // Validate Polygon (Self-Intersection Check)
+    try {
+      const coordinates = pins.map(p => [p.lng, p.lat]);
+      // Close the loop for turf validation
+      const closedCoords = [...coordinates, coordinates[0]];
+      const poly = polygon([closedCoords]);
+      const invalid = kinks(poly);
+      
+      if (invalid.features.length > 0) {
+        setToast({ 
+          visible: true, 
+          message: "Invalid Boundary: Lines cannot cross each other (Self-intersection).", 
+          type: "error" 
+        });
+        return;
+      }
+    } catch (e) {
+      console.error("Validation error", e);
+    }
 
     createProject.mutate({
       name: projectName,
