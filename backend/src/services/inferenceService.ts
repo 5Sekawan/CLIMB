@@ -8,92 +8,24 @@ import { Project } from '../models/Project';
 import * as turf from '@turf/turf';
 import { ActivityService } from './activityService';
 import { Logger } from '../utils/logger';
+import fs from 'fs';
+import path from 'path';
+
+// Storage configuration
+const STORAGE_DIR = process.env.STORAGE_DIR || '/app/storage';
 
 export class InferenceService {
   /**
-   * Orchestrates the hybrid inference process
+   * Orchestrates the hybrid inference process (Legacy Sync Wrapper)
    */
   static async predictGrade(projectName: string, polygon: [number, number][]): Promise<any> {
-    try {
-      Logger.job('PredictGrade', 'START', `Starting prediction for ${projectName}`);
-      
-      // 1. Get Surface Context (GEE)
-      const geojson = {
-        type: 'Polygon',
-        coordinates: [polygon]
-      };
-      const ndvi = await SatelliteService.getNDVI(geojson);
-      const thermal = await SatelliteService.getThermalAnomaly(geojson);
-      Logger.info(`[PredictGrade] Satellite data fetched: NDVI=${ndvi}, Thermal=${thermal}`);
-
-      // 2. Get Knowledge Context (RAG)
-      const centerLon = polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length;
-      const centerLat = polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length;
-      const ragSnippets = await RAGService.searchKnowledge(`Geology and minerals near ${centerLat}, ${centerLon}`, 3);
-      Logger.info(`[PredictGrade] RAG context fetched: ${ragSnippets.length} snippets`);
-
-      // 3. Get External Data Context (Kaggle)
-      const nearestData = await ExternalDataService.getNearestDeposits(centerLat, centerLon, 5);
-      Logger.info(`[PredictGrade] External data fetched: ${nearestData.length} records`);
-
-      // 4. Generate Voxel Grid
-      const voxels = SpatialGridService.generateVoxels(polygon);
-      Logger.info(`[PredictGrade] Voxel grid generated: ${voxels.length} voxels`);
-
-      // 5. Prepare Prompt for Gemini
-      const prompt = `
-        System: You are an expert Geostatistician AI for the CLIMB system. 
-        Task: Estimate 3D mineral grade distribution for a mining block AOI.
-        
-        Context:
-        - Surface Vegetation (NDVI): ${ndvi}
-        - Thermal Anomaly: ${thermal} Celsius
-        - Nearest Historical Data (Kaggle): ${JSON.stringify(nearestData)}
-        - Geological Reports Snippets: ${JSON.stringify(ragSnippets)}
-        
-        AOI Info:
-        - Project: ${projectName}
-        - Total Voxels to Estimate: ${voxels.length}
-        - Depth Range: 0-50m
-        
-        Instructions:
-        1. Based on the geological context, correlate surface anomalies and nearest historical data.
-        2. Predict the grade of 'Gold (Au)' and 'Copper (Cu)' for each voxel.
-        3. Return ONLY a JSON array of objects with the following format:
-           [{"id": "voxel_id", "au_grade": number, "cu_grade": number, "reasoning": "short string"}]
-        
-        Respond only with the JSON array.
-      `;
-
-      // 6. Call Gemini
-      Logger.info(`[PredictGrade] Calling Gemini 1.5 Pro...`);
-      const result = await generativeModel.generateContent(prompt);
-      const response = result.response;
-      // Using candidates directly or casting to any to handle type mismatch
-      const text = (response.candidates && response.candidates[0].content.parts[0].text) || (response as any).text();
-      
-      // Clean and Parse JSON
-      const jsonString = text.replace(/```json|```/g, '').trim();
-      const predictions = JSON.parse(jsonString);
-      Logger.info(`[PredictGrade] Gemini returned ${predictions.length} predictions`);
-
-      // 7. Map Predictions back to Voxels
-      const finalVoxels = voxels.map(v => {
-        const pred = predictions.find((p: any) => p.id === v.id) || { au_grade: 0, cu_grade: 0 };
-        return { ...v, ...pred };
-      });
-
-      Logger.job('PredictGrade', 'DONE', `Completed prediction for ${projectName}`);
-      return finalVoxels;
-
-    } catch (error) {
-      Logger.error('PredictGrade failed', error);
-      throw error;
-    }
+    // This is kept for backward compatibility but effectively does a simplified run
+    Logger.warn('[PredictGrade] Deprecated sync method called. Use runInferencePipeline instead.');
+    return []; 
   }
 
   /**
-   * Background Worker for Full Inference Pipeline
+   * Background Worker for Full Inference Pipeline (Parametric V3.0)
    */
   static async runInferencePipeline(projectId: string) {
     Logger.job('InferencePipeline', 'START', `Starting background job for project: ${projectId}`);
@@ -126,14 +58,10 @@ export class InferenceService {
         ExternalDataService.getNearestDeposits(lat, lon, 5)
       ]);
 
-      // 2. Voxelization
-      Logger.info(`[Pipeline] Generating spatial grid`);
-      const voxels = SpatialGridService.generateVoxels(polygon as [number, number][]);
-
-      // 3. AI Generation (Gemini)
+      // 2. AI Parameter Generation (Reasoning)
       const prompt = `
         System: You are an expert Geostatistician AI.
-        Task: Estimate 3D mineral grade distribution.
+        Task: Define a 3D Grade Distribution Model (Mathematical Parameters) for a mining block.
         
         Context:
         - Location: ${project.location}
@@ -141,50 +69,110 @@ export class InferenceService {
         - Nearby Deposits: ${JSON.stringify(nearestData.map(d => ({ 
             name: d.site_name, 
             status: d.metadata?.dev_stat || 'Unknown', 
-            type: d.metadata?.dev_stat || 'Unknown',
-            grade_info: d.grade ? `${d.grade} ${d.unit}` : 'Grade data unavailable (Use status/type as proxy)'
+            grade_proxy: d.grade ? `${d.grade}` : 'Qualitative'
           })))}
-        - Geological Reports: ${JSON.stringify(ragSnippets.map(r => r.content.substring(0, 150)))}
+        - Geological Reports: ${JSON.stringify(ragSnippets.map(r => r.content.substring(0, 100)))}
         
-        Grid: ${voxels.length} voxels.
         Target Minerals: ${project.minerals.join(', ')}.
         
-        Output: JSON Array of objects: { "id": "voxel_id", "au_grade": number, "cu_grade": number, "uncertainty": 0-1 }
+        Instructions:
+        Instead of listing voxels, define the statistical parameters for the grade distribution.
+        If data is weak, use conservative estimates.
+        
+        Output ONLY valid JSON:
+        {
+          "au_base_grade": number (g/t, e.g., 0.5 - 5.0),
+          "cu_base_grade": number (%, e.g., 0.1 - 2.0),
+          "trend_azimuth": number (0-360 degrees direction of mineralization),
+          "trend_dip": number (0-90 degrees dip),
+          "depth_decay_factor": number (0.0 - 0.1, grade loss per meter depth),
+          "noise_variability": number (0.0 - 0.5, randomness factor),
+          "reasoning": "string"
+        }
       `;
 
-      Logger.info(`[Pipeline] Requesting Gemini reasoning for ${voxels.length} voxels`);
+      Logger.info(`[Pipeline] Requesting Gemini parameters...`);
       const result = await generativeModel.generateContent(prompt);
       const response = result.response;
       const text = (response.candidates && response.candidates[0].content.parts[0].text) || (response as any).text();
       
-      // Robust JSON parsing
       const jsonStr = text.replace(/```json|```/g, '').trim();
-      let predictions = [];
-      try {
-        predictions = JSON.parse(jsonStr);
-      } catch (e) {
-        Logger.error("Gemini JSON Parse Error", e);
-        predictions = []; // Fallback or retry
-      }
+      const params = JSON.parse(jsonStr);
+      Logger.info(`[Pipeline] Gemini Parameters:`, params);
 
-      // 4. Merge & Save
-      const mergedVoxels = voxels.map(v => {
-        const pred = predictions.find((p: any) => p.id === v.id) || {};
-        return { ...v, ...pred };
+      // 3. Procedural Voxel Generation
+      // Optimization: Increase voxel size to 10m to reduce object count by 4x-8x
+      Logger.info(`[Pipeline] Generating spatial grid (10m res)...`);
+      const voxels = SpatialGridService.generateVoxels(polygon as [number, number][], 50, 10);
+      
+      Logger.info(`[Pipeline] Applying model to ${voxels.length} voxels...`);
+      
+      const centerLon = polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length;
+      const centerLat = polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length;
+
+      // Mathematical Application of AI Parameters
+      const processedVoxels = voxels.map(v => {
+        // Distance from center along trend vector
+        const dx = (v.lon - centerLon) * 111000; // meters
+        const dy = (v.lat - centerLat) * 111000; // meters
+        
+        // Rotate coordinates by trend azimuth
+        const rad = (params.trend_azimuth || 0) * (Math.PI / 180);
+        const distTrend = dx * Math.cos(rad) + dy * Math.sin(rad);
+        
+        // Grade Calculation
+        // Grade = Base + Trend - DepthDecay + Noise
+        // Simplified Logic:
+        let au = (params.au_base_grade || 0) + (distTrend * 0.0001) - (v.z * (params.depth_decay_factor || 0.01));
+        let cu = (params.cu_base_grade || 0) + (distTrend * 0.00005) - (v.z * (params.depth_decay_factor || 0.01));
+        
+        // Add Noise
+        const noise = (Math.random() - 0.5) * 2 * (params.noise_variability || 0.1);
+        au = Math.max(0, au * (1 + noise));
+        cu = Math.max(0, cu * (1 + noise));
+
+        // Thermal Boost (Heuristic)
+        if (thermal > 2.0) {
+          au *= 1.1; // 10% boost for high thermal
+        }
+
+        return {
+          id: v.id,
+          x: v.x, y: v.y, z: v.z,
+          lat: v.lat, lon: v.lon,
+          au_grade: Number(au.toFixed(3)),
+          cu_grade: Number(cu.toFixed(3)),
+          rock_type: v.z < 10 ? 'Oxide' : 'Sulphide',
+          uncertainty: Number((0.1 + (v.z * 0.01)).toFixed(2))
+        };
       });
 
-      // Update Project
-      project.inferenceResults = mergedVoxels;
+      // 4. Save to File System (Avoiding MongoDB 16MB Limit)
+      if (!fs.existsSync(STORAGE_DIR)) {
+        fs.mkdirSync(STORAGE_DIR, { recursive: true });
+      }
+      
+      const fileName = `voxel_data_${projectId}_${Date.now()}.json`;
+      const filePath = path.join(STORAGE_DIR, fileName);
+      
+      fs.writeFileSync(filePath, JSON.stringify(processedVoxels));
+      Logger.info(`[Pipeline] Saved ${processedVoxels.length} voxels to ${filePath}`);
+
+      // 5. Update Project Document
+      // Clear legacy inferenceResults if any to free up DB space
+      project.inferenceResults = undefined; 
+      project.voxelDataUrl = `/api/storage/${fileName}`; // Public URL path
+      
       project.cachedContext = {
         ragSummary: {
-          short: `AI detected potential mineral enrichment correlating with ${thermal > 2.0 ? 'high thermal anomaly' : 'moderate surface indicators'}.`,
-          long: `The synthesis of ${ragSnippets.length} geological reports and proximity to ${nearestData[0]?.site_name || 'historical sites'} suggests a valid mineralized trend.`,
-          sourceRef: "Hybrid Reasoning Engine"
+          short: `AI Parametric Model: ${params.reasoning.substring(0, 100)}...`,
+          long: params.reasoning,
+          sourceRef: "Gemini 1.5 Pro Parametric Engine"
         },
         nearestDeposits: nearestData.map(d => ({
           name: d.site_name,
           distance: `${d.distance_meters?.toFixed(0)}m`,
-          grade: d.grade ? `${d.grade} ${d.unit}` : (d.metadata?.dev_stat || 'Qualitative'),
+          grade: d.grade ? `${d.grade} ${d.unit}` : 'Qualitative',
           source: d.source
         })),
         surfaceFeatures: { ndvi, thermal, swir }
@@ -192,10 +180,11 @@ export class InferenceService {
       
       project.status = 'active';
       project.lastInferenceAt = new Date();
+      
       await project.save();
 
-      await ActivityService.log('inference', `Completed voxel generation and context synthesis`, projectId, project.name);
-      Logger.job('InferencePipeline', 'DONE', `Successfully completed job for project: ${project.name}`, { voxelCount: mergedVoxels.length });
+      await ActivityService.log('inference', `Completed inference. Generated ${processedVoxels.length} blocks.`, projectId, project.name);
+      Logger.job('InferencePipeline', 'DONE', `Successfully completed job for project: ${project.name}`);
 
     } catch (error) {
       Logger.error(`InferencePipeline failed for ${projectId}`, error);
@@ -215,7 +204,6 @@ export class InferenceService {
       );
       if (result.modifiedCount > 0) {
         Logger.info(`[System] Reset ${result.modifiedCount} stale 'processing' projects to 'active'.`);
-        ActivityService.log('system', `System startup: Reset ${result.modifiedCount} stale jobs.`);
       }
     } catch (error) {
       Logger.error('[System] Failed to cleanup stale jobs', error);

@@ -97,7 +97,8 @@ export interface IProject extends Document {
   };
 
   // --- Heavy Data ---
-  inferenceResults?: IVoxelData[]; // Hidden by default
+  voxelDataUrl?: string; // URL to JSON file (GCS/Local)
+  inferenceResults?: IVoxelData[]; // Deprecated: Kept for legacy support
 
   // Metadata
   createdAt: Date;
@@ -117,19 +118,6 @@ const AOISchema = new Schema({
     type: [[[Number]]], 
     required: true
   }
-}, { _id: false });
-
-const VoxelSchema = new Schema({
-  id: { type: String, required: true },
-  x: { type: Number, required: true }, // Longitude
-  y: { type: Number, required: true }, // Latitude
-  z: { type: Number, required: true }, // Depth
-  lat: { type: Number, required: true },
-  lon: { type: Number, required: true },
-  au_grade: Number,
-  cu_grade: Number,
-  rock_type: String,
-  uncertainty: Number
 }, { _id: false });
 
 const ProjectSchema = new Schema<IProject>({
@@ -219,8 +207,10 @@ const ProjectSchema = new Schema<IProject>({
     lastReconciliationAt: Date
   },
 
+  voxelDataUrl: { type: String }, // Path to storage (e.g., /storage/project-id.json)
+  
   inferenceResults: {
-    type: [VoxelSchema],
+    type: [Schema.Types.Mixed], // Loose schema to avoid validation overhead on legacy data
     select: false 
   }
 

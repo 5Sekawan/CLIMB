@@ -25,6 +25,7 @@ services:
       - .env
     volumes:
       - ./config/gcp-service-account.json:/app/config/gcp-service-account.json:ro
+      - climb_storage:/app/storage
     depends_on:
       - mongodb
     networks:
@@ -63,3 +64,4 @@ networks:
 
 volumes:
   mongodb_data:
+  climb_storage:

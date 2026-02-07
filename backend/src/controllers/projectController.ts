@@ -168,18 +168,23 @@ export class ProjectController {
   /**
    * GET /api/projects/:id/voxels
    * Lazy load the 3D model data.
+   * Redirects to static file storage for performance.
    */
   static async getProjectVoxels(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const project = await Project.findById(id).select('inferenceResults');
+      const project = await Project.findById(id).select('inferenceResults voxelDataUrl');
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
 
-      // Return just the array to save bandwidth wrapper overhead? 
-      // Or standard wrapper. Standard is better for consistency.
+      // V3.0 Architecture: Redirect to static JSON file
+      if (project.voxelDataUrl) {
+        return res.redirect(project.voxelDataUrl);
+      }
+
+      // Legacy Fallback
       res.status(200).json(project.inferenceResults || []);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
