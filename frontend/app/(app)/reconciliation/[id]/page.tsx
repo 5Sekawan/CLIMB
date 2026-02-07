@@ -1,7 +1,7 @@
 "use client";
 
-import { use, useCallback } from "react";
-import { StatCard, CButton, CBadge, InsightCard } from "@/components/climb/ui";
+import { use, useCallback, useState } from "react";
+import { StatCard, CButton, CBadge, InsightCard, SkeletonShimmer } from "@/components/climb/ui";
 import {
   UploadIcon,
   ChartUpIcon,
@@ -15,12 +15,11 @@ import {
 } from "@/components/climb/icons";
 import { ComparisonWorkspace } from "@/components/climb/reconciliation/comparison-workspace";
 import { LessonsTerminal } from "@/components/climb/reconciliation/lessons-terminal";
-import { getProjectDetail } from "@/lib/mock-data";
-import { useState } from "react";
-import { cn, parseCoordinates } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useUploadActuals } from "@/hooks/use-reconciliation";
 import { Toast } from "@/components/climb/toast";
+import { useProjectDetail } from "@/hooks/use-projects";
 
 const blockData = [
   { block: "A3-12", predicted: 2.84, actual: 2.65, variance: -0.19, status: "ok" as const },
@@ -39,7 +38,7 @@ export default function ReconciliationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const project = getProjectDetail(id);
+  const { data: project, isLoading, isError } = useProjectDetail(id);
   const [isDragging, setIsDragging] = useState(false);
   const uploadActuals = useUploadActuals();
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' as 'success' | 'error' | 'info' });
@@ -67,7 +66,18 @@ export default function ReconciliationPage({
     }
   }, [id, uploadActuals]);
 
-  if (!project) {
+  if (isLoading) {
+    return (
+      <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted border-t-climb-mint" />
+          <p className="text-sm text-muted-foreground animate-pulse">Loading Project Data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError || !project) {
     return (
       <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-center">
