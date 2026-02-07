@@ -11,17 +11,55 @@ const tableId = process.env.BQ_TABLE_KNOWLEDGE;
 
 export class RAGService {
   /**
-   * Generates vector embedding for a given text using Vertex AI
+   * Generates vector embedding using raw REST API to avoid SDK version issues
    */
   static async generateEmbedding(text: string): Promise<number[]> {
     try {
-      // Casting to any to avoid SDK version type mismatch
-      const result = await (embeddingModel as any).embedContent({
-        content: { parts: [{ text }], role: '' },
+      const { GoogleAuth } = require('google-auth-library');
+      const auth = new GoogleAuth({
+        scopes: 'https://www.googleapis.com/auth/cloud-platform'
       });
-      return result.embeddings[0].values;
+      
+      const client = await auth.getClient();
+      const accessToken = await client.getAccessToken();
+      
+      // Use the configured Project ID (Billing Project) for the API call
+      const projectId = process.env.GCP_PROJECT_ID;
+      const location = process.env.GCP_LOCATION || 'us-central1';
+      const modelId = 'text-embedding-004';
+      
+      const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelId}:predict`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          instances: [{ content: text }],
+          parameters: { autoTruncate: false }
+        })
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Vertex API Error: ${response.status} - ${errorBody}`);
+      }
+
+      const data = await response.json() as any;
+      // Parse response structure for text-embedding-004
+      // Response format: { predictions: [ { embeddings: { values: [...] } } ] }
+      const values = data.predictions?.[0]?.embeddings?.values;
+      
+      if (!values) {
+        throw new Error('Invalid embedding response format');
+      }
+      
+      return values;
+
     } catch (error) {
-      Logger.error('Error generating embedding', error);
+      Logger.error('Error generating embedding (REST)', error);
       throw new Error('Failed to generate embedding');
     }
   }
