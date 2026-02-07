@@ -31,7 +31,7 @@ export const vertexAI = new VertexAI({
 console.log(`[GCP] Initialized clients for Project: ${projectId}`);
 
 export const generativeModel = vertexAI.getGenerativeModel({
-  model: process.env.VERTEX_AI_MODEL_ID || 'gemini-1.5-pro',
+  model: 'gemini-1.5-pro', // Force stable model
 });
 
 // Fix: Use getGenerativeModel directly for embeddings in newer SDK versions

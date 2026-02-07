@@ -72,11 +72,21 @@ export class RAGService {
       const embedding = await this.generateEmbedding(queryText);
       const embeddingString = `[${embedding.join(',')}]`;
 
-      // BigQuery Vector Search Query (Fixed: Added Table ID and Data Project ID)
+      // Standard SQL Cosine Distance (1 - Cosine Similarity)
+      // Works in all regions/editions where VECTOR_DISTANCE might be missing
       const query = `
-        SELECT content, metadata, 
-               VECTOR_DISTANCE(embedding, CAST('${embeddingString}' AS ARRAY<FLOAT64>), 'COSINE') as distance
-        FROM \`${dataProjectId}.${datasetId}.${tableId}\`
+        WITH input_vector AS (
+          SELECT CAST('${embeddingString}' AS ARRAY<FLOAT64>) as vec
+        )
+        SELECT content, metadata,
+          (
+            1 - (
+              (SELECT SUM(v1 * v2) FROM UNNEST(embedding) v1 WITH OFFSET i JOIN UNNEST(vec) v2 WITH OFFSET j ON i = j)
+              /
+              (SQRT((SELECT SUM(v * v) FROM UNNEST(embedding) v)) * SQRT((SELECT SUM(v * v) FROM UNNEST(vec) v)))
+            )
+          ) as distance
+        FROM \`${dataProjectId}.${datasetId}.${tableId}\`, input_vector
         ORDER BY distance ASC
         LIMIT ${limit}
       `;
