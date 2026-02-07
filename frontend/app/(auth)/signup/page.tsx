@@ -92,7 +92,7 @@ export default function SignupPage() {
           
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label htmlFor="password" class="text-xs font-medium text-muted-foreground">
+              <label htmlFor="password" className="text-xs font-medium text-muted-foreground">
                 Password
               </label>
               <input
@@ -107,7 +107,7 @@ export default function SignupPage() {
             </div>
             
             <div className="space-y-1.5">
-              <label htmlFor="confirmPassword" class="text-xs font-medium text-muted-foreground">
+              <label htmlFor="confirmPassword" className="text-xs font-medium text-muted-foreground">
                 Confirm Password
               </label>
               <input

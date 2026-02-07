@@ -61,7 +61,7 @@ export default function LoginPage() {
           
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label htmlFor="password" class="text-xs font-medium text-muted-foreground">
+              <label htmlFor="password" className="text-xs font-medium text-muted-foreground">
                 Password
               </label>
               <Link
