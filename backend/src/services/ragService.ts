@@ -1,4 +1,5 @@
-import { bigquery, embeddingModel, dataProjectId } from '../config/gcp';
+import { bigquery, dataProjectId } from '../config/gcp';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const pdfParse = require('pdf-parse');
 import dotenv from 'dotenv';
 import { DocumentModel } from '../models/Document';
