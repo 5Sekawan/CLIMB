@@ -11,11 +11,6 @@ out/
 bin/
 obj/
 
-# Cache
-cache/
-.cache/
-*.cache/
-
 # TypeScript Generated Files (Prevent committing compiled JS in src)
 backend/src/**/*.js
 backend/src/**/*.js.map
