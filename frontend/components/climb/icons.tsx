@@ -554,3 +554,29 @@ export function PenToolIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function TrashIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={cn("h-4 w-4", className)}>
+      <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+    </svg>
+  );
+}
+
+export function CheckIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={cn("h-3 w-3", className)}>
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+export function GripIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={cn("h-3.5 w-3.5", className)}>
+      <circle cx="9" cy="5" r="1" /><circle cx="15" cy="5" r="1" />
+      <circle cx="9" cy="12" r="1" /><circle cx="15" cy="12" r="1" />
+      <circle cx="9" cy="19" r="1" /><circle cx="15" cy="19" r="1" />
+    </svg>
+  );
+}
