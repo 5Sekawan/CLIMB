@@ -1,15 +1,13 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { ClimbLogo, SearchIcon, SettingsIcon } from "./icons";
-import { AIStatusBadge } from "./ui";
+import { ClimbLogo, SettingsIcon } from "./icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 const navLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/explorer", label: "Explorer", matchPrefix: "/explorer" },
   { href: "/reconciliation", label: "Reconciliation", matchPrefix: "/reconciliation" },
-  { href: "/settings", label: "Settings" },
 ];
 
 export function TopNav() {
@@ -52,23 +50,6 @@ export function TopNav() {
 
         {/* Spacer */}
         <div className="flex-1" />
-
-        {/* Search Bar (Command Palette Trigger) */}
-        <button
-          className="hidden sm:flex items-center gap-2 h-9 w-64 rounded-lg border border-border bg-muted/50 px-3 text-sm text-muted-foreground transition-colors duration-climb-fast hover:border-primary/30 hover:bg-muted"
-          aria-label="Search"
-        >
-          <SearchIcon className="h-4 w-4" />
-          <span className="flex-1 text-left text-xs">
-            Ask AI about your project...
-          </span>
-          <kbd className="hidden lg:inline-flex h-5 items-center gap-0.5 rounded border border-border bg-card px-1.5 font-mono text-[10px] text-muted-foreground">
-            {"Cmd+K"}
-          </kbd>
-        </button>
-
-        {/* AI Status */}
-        <AIStatusBadge status="idle" />
 
         {/* Settings */}
         <Link
