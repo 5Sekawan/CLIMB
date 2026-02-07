@@ -1,6 +1,7 @@
 import ee from '@google/earthengine';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import { Logger } from '../utils/logger';
 
 dotenv.config();
 
@@ -24,15 +25,22 @@ export class SatelliteService {
               null,
               () => {
                 this.isInitialized = true;
-                console.log('Google Earth Engine initialized successfully');
+                Logger.info('Google Earth Engine initialized successfully');
                 resolve(true);
               },
-              (err: any) => reject(err)
+              (err: any) => {
+                Logger.error('GEE Initialization error', err);
+                reject(err);
+              }
             );
           },
-          (err: any) => reject(err)
+          (err: any) => {
+            Logger.error('GEE Authentication error', err);
+            reject(err);
+          }
         );
       } catch (error) {
+        Logger.error('GEE setup error', error);
         reject(error);
       }
     });
@@ -43,6 +51,7 @@ export class SatelliteService {
    */
   static async getNDVI(geometry: any): Promise<number> {
     await this.initialize();
+    Logger.info(`[GEE] Analyzing NDVI for provided polygon`);
     
     // Convert GeoJSON geometry to EE Geometry
     const eeGeom = ee.Geometry(geometry);
@@ -66,7 +75,9 @@ export class SatelliteService {
 
     return new Promise((resolve) => {
       stats.evaluate((result: any) => {
-        resolve(result?.NDVI || 0);
+        const val = result?.NDVI || 0;
+        Logger.info(`[GEE] Calculated mean NDVI: ${val}`);
+        resolve(val);
       });
     });
   }
@@ -76,6 +87,7 @@ export class SatelliteService {
    */
   static async getThermalAnomaly(geometry: any): Promise<number> {
     await this.initialize();
+    Logger.info(`[GEE] Analyzing Thermal Anomaly for provided polygon`);
     
     const eeGeom = ee.Geometry(geometry);
     
@@ -96,7 +108,9 @@ export class SatelliteService {
 
     return new Promise((resolve) => {
       stats.evaluate((result: any) => {
-        resolve(result?.ST_B10 || 0);
+        const val = result?.ST_B10 || 0;
+        Logger.info(`[GEE] Calculated mean Thermal: ${val}C`);
+        resolve(val);
       });
     });
   }
@@ -108,6 +122,7 @@ export class SatelliteService {
    */
   static async getSWIR(geometry: any): Promise<number> {
     await this.initialize();
+    Logger.info(`[GEE] Analyzing SWIR Ratio for provided polygon`);
     
     // Convert GeoJSON geometry to EE Geometry
     const eeGeom = ee.Geometry(geometry);
@@ -131,7 +146,9 @@ export class SatelliteService {
 
     return new Promise((resolve) => {
       stats.evaluate((result: any) => {
-        resolve(result?.SWIR_Ratio || 0);
+        const val = result?.SWIR_Ratio || 0;
+        Logger.info(`[GEE] Calculated mean SWIR Ratio: ${val}`);
+        resolve(val);
       });
     });
   }

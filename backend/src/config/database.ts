@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import { Logger } from '../utils/logger';
 
 dotenv.config();
 
@@ -20,7 +21,7 @@ export class Database {
    */
   static async connect(): Promise<void> {
     if (connection.isConnected) {
-      console.log('Using existing MongoDB connection');
+      Logger.info('Using existing MongoDB connection');
       return;
     }
 
@@ -35,9 +36,9 @@ export class Database {
       });
 
       connection.isConnected = db.connections[0].readyState;
-      console.log(`MongoDB Connected: ${db.connections[0].host}`);
+      Logger.info(`MongoDB Connected: ${db.connections[0].host}`);
     } catch (error) {
-      console.error('MongoDB connection error:', error);
+      Logger.error('MongoDB connection error', error);
       process.exit(1); // Exit process with failure
     }
   }

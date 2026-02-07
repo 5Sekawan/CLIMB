@@ -9,6 +9,7 @@ import reconciliationRoutes from './routes/reconciliationRoutes';
 import activityRoutes from './routes/activityRoutes';
 import authRoutes from './routes/authRoutes';
 import { InferenceService } from './services/inferenceService';
+import { Logger } from './utils/logger';
 
 dotenv.config();
 
@@ -16,11 +17,22 @@ const app = express();
 const port = process.env.PORT || 8080;
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
+// 1. Request Logging Middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    Logger.request(req.method, req.path, res.statusCode, duration, req.ip);
+  });
+  next();
+});
+
 // Trust Proxy (Required for Rate Limiting behind Nginx/Load Balancers)
 app.set('trust proxy', 1);
 
 // Connect to Database
 Database.connect().then(() => {
+  Logger.info('Database layer initialized');
   // Run cleanup on DB connect
   InferenceService.cleanupStaleJobs();
 });
@@ -71,6 +83,8 @@ app.get('/health', (req, res) => {
 
 // Start Server
 app.listen(port, () => {
-  console.log(`CLIMB Backend running on port ${port}`);
-  console.log(`CORS Configured for: ${frontendUrl}`);
+  Logger.info(`CLIMB Backend running on port ${port}`);
+  Logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  Logger.info(`Billing Project: ${process.env.GCP_PROJECT_ID}`);
+  Logger.info(`Data Project: ${process.env.BQ_DATA_PROJECT_ID || process.env.GCP_PROJECT_ID}`);
 });

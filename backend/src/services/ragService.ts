@@ -2,6 +2,7 @@ import { bigquery, embeddingModel, dataProjectId } from '../config/gcp';
 const pdfParse = require('pdf-parse');
 import dotenv from 'dotenv';
 import { DocumentModel } from '../models/Document';
+import { Logger } from '../utils/logger';
 
 dotenv.config();
 
@@ -20,7 +21,7 @@ export class RAGService {
       });
       return result.embeddings[0].values;
     } catch (error) {
-      console.error('Error generating embedding:', error);
+      Logger.error('Error generating embedding', error);
       throw new Error('Failed to generate embedding');
     }
   }
@@ -43,9 +44,10 @@ export class RAGService {
       `;
 
       const [rows] = await bigquery.query({ query });
+      Logger.info(`[RAG] Search returned ${rows.length} results for query: "${queryText.substring(0, 50)}..."`);
       return rows;
     } catch (error) {
-      console.error('Error searching knowledge base:', error);
+      Logger.error('Error searching knowledge base', error);
       return [];
     }
   }
@@ -54,10 +56,11 @@ export class RAGService {
    * Ingests a PDF document into the Knowledge Base
    */
   static async ingestDocument(fileBuffer: Buffer, metadata: any, documentId: string, location?: string): Promise<void> {
+    Logger.job('RAGIngestion', 'START', `Processing document: ${documentId}`, { filename: metadata.filename });
     try {
-      console.log(`[RAG] Starting ingestion for doc: ${documentId}`);
       const data = await pdfParse(fileBuffer);
       const fullText = data.text;
+      Logger.info(`[RAG] PDF parsed successfully. Length: ${fullText.length} chars.`);
 
       // Recursive Chunking (Simple implementation: split by length with overlap)
       const chunkSize = 1000;
@@ -68,7 +71,7 @@ export class RAGService {
         chunks.push(fullText.substring(i, i + chunkSize));
       }
 
-      console.log(`[RAG] Generated ${chunks.length} chunks. Generating embeddings...`);
+      Logger.info(`[RAG] Generated ${chunks.length} chunks. Starting embedding generation...`);
 
       const rowsToInsert = [];
       for (const [index, chunk] of chunks.entries()) {
@@ -85,17 +88,20 @@ export class RAGService {
           location: location ? bigquery.geography(location) : null, 
           embedding: embedding
         });
+
+        if ((index + 1) % 10 === 0) {
+          Logger.info(`[RAG] Embedded ${index + 1}/${chunks.length} chunks...`);
+        }
       }
 
       if (rowsToInsert.length > 0) {
-        // Insert into the Data Project (requires BigQuery Data Editor on the dataset)
-        // The Job itself runs in the GCP_PROJECT_ID (requires BigQuery Job User)
+        // Insert into the Data Project
         await bigquery
           .dataset(datasetId!, { projectId: dataProjectId })
           .table(tableId!)
           .insert(rowsToInsert);
           
-        console.log(`[RAG] Successfully inserted ${rowsToInsert.length} chunks to Knowledge Base.`);
+        Logger.job('RAGIngestion', 'DONE', `Successfully ingested ${rowsToInsert.length} chunks into BigQuery.`);
         
         // Update Status in MongoDB
         await DocumentModel.findByIdAndUpdate(documentId, {
@@ -103,14 +109,14 @@ export class RAGService {
           chunkCount: rowsToInsert.length
         });
       } else {
-        console.warn('[RAG] No valid chunks to insert.');
+        Logger.warn('[RAG] No valid chunks to insert.');
         await DocumentModel.findByIdAndUpdate(documentId, {
           status: 'error'
         });
       }
 
     } catch (error) {
-      console.error('Error ingesting document:', error);
+      Logger.error(`Document ingestion failed for ${documentId}`, error);
       await DocumentModel.findByIdAndUpdate(documentId, {
         status: 'error'
       });
