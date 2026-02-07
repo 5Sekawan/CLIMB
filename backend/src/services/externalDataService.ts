@@ -1,4 +1,4 @@
-import { bigquery } from '../config/gcp';
+import { bigquery, dataProjectId } from '../config/gcp';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -15,7 +15,7 @@ export class ExternalDataService {
       const query = `
         SELECT site_name, mineral_type, grade, unit, source, metadata,
                ST_DISTANCE(geom, ST_GEOGPOINT(${lon}, ${lat})) as distance_meters
-        FROM \`${datasetId}.${tableId}\`
+        FROM \`${dataProjectId}.${datasetId}.${tableId}\`
         ORDER BY distance_meters ASC
         LIMIT ${limit}
       `;

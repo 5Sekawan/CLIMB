@@ -9,8 +9,12 @@ const projectId = process.env.GCP_PROJECT_ID || '';
 const keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS || '';
 const location = process.env.GCP_LOCATION || 'asia-southeast1';
 
+// Cross-Project Query Support
+// Use BQ_DATA_PROJECT_ID if the data lives in a different project than the billing/execution project.
+export const dataProjectId = process.env.BQ_DATA_PROJECT_ID || projectId;
+
 export const bigquery = new BigQuery({
-  projectId: projectId,
+  projectId: projectId, // Job Execution & Billing Project
   keyFilename: keyFilename,
 });
 

@@ -1,4 +1,4 @@
-import { bigquery, embeddingModel } from '../config/gcp';
+import { bigquery, embeddingModel, dataProjectId } from '../config/gcp';
 const pdfParse = require('pdf-parse');
 import dotenv from 'dotenv';
 import { DocumentModel } from '../models/Document';
@@ -33,11 +33,11 @@ export class RAGService {
       const embedding = await this.generateEmbedding(queryText);
       const embeddingString = `[${embedding.join(',')}]`;
 
-      // BigQuery Vector Search Query (Fixed: Added Table ID)
+      // BigQuery Vector Search Query (Fixed: Added Table ID and Data Project ID)
       const query = `
         SELECT content, metadata, 
                VECTOR_DISTANCE(embedding, CAST('${embeddingString}' AS ARRAY<FLOAT64>), 'COSINE') as distance
-        FROM \`${datasetId}.${tableId}\`
+        FROM \`${dataProjectId}.${datasetId}.${tableId}\`
         ORDER BY distance ASC
         LIMIT ${limit}
       `;
@@ -88,7 +88,13 @@ export class RAGService {
       }
 
       if (rowsToInsert.length > 0) {
-        await bigquery.dataset(datasetId!).table(tableId!).insert(rowsToInsert);
+        // Insert into the Data Project (requires BigQuery Data Editor on the dataset)
+        // The Job itself runs in the GCP_PROJECT_ID (requires BigQuery Job User)
+        await bigquery
+          .dataset(datasetId!, { projectId: dataProjectId })
+          .table(tableId!)
+          .insert(rowsToInsert);
+          
         console.log(`[RAG] Successfully inserted ${rowsToInsert.length} chunks to Knowledge Base.`);
         
         // Update Status in MongoDB

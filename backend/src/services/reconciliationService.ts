@@ -1,4 +1,4 @@
-import { bigquery, generativeModel } from '../config/gcp';
+import { bigquery, generativeModel, dataProjectId } from '../config/gcp';
 import { RAGService } from './ragService';
 import dotenv from 'dotenv';
 
@@ -157,7 +157,10 @@ export class ReconciliationService {
         embedding: embedding
       }];
 
-      await bigquery.dataset(datasetId!).table(tableId!).insert(rows);
+      await bigquery
+        .dataset(datasetId!, { projectId: dataProjectId })
+        .table(tableId!)
+        .insert(rows);
       console.log('Feedback injected into Vector Store successfully.');
     } catch (error) {
       console.error('Failed to inject feedback:', error);
