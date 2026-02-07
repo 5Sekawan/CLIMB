@@ -17,13 +17,8 @@ const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 Database.connect();
 
 // Middleware
-// 1. Strict CORS
-app.use(cors({
-  origin: frontendUrl,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
+// 1. CORS (Allow All Origins)
+app.use(cors());
 
 app.use(express.json());
 
