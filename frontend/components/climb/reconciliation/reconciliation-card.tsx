@@ -10,8 +10,16 @@ import {
   BrainIcon,
   ActivityIcon,
 } from "@/components/climb/icons";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import Link from "next/link";
 import type { ReconciliationSummary } from "@/lib/mock-data";
+import { useUpdateProjectStatus } from "@/hooks/use-projects";
+import { ChevronDown } from "lucide-react";
 
 interface ReconciliationCardProps {
   data: ReconciliationSummary;
@@ -38,7 +46,12 @@ export function ReconciliationCard({
   data,
   className,
 }: ReconciliationCardProps) {
+  const updateStatus = useUpdateProjectStatus();
   const isClickable = data.status !== "inactive";
+
+  const handleStatusChange = (status: string) => {
+    updateStatus.mutate({ id: data.projectId, status });
+  };
 
   const content = (
     <div
@@ -84,14 +97,33 @@ export function ReconciliationCard({
           >
             {data.driftStatus === "stable" ? "Stable" : "Drifting"}
           </CBadge>
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
-              statusConfig[data.status].badgeClass,
-            )}
-          >
-            {statusConfig[data.status].label}
-          </span>
+          
+          <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={cn(
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold hover:opacity-80 transition-opacity",
+                    statusConfig[data.status].badgeClass,
+                  )}
+                >
+                  {statusConfig[data.status].label}
+                  <ChevronDown className="ml-1 h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleStatusChange("active")}>
+                  Active
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStatusChange("finished")}>
+                  Finished
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStatusChange("inactive")}>
+                  Inactive
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 

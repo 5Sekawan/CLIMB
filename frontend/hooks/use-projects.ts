@@ -130,6 +130,7 @@ export function useProjectDetail(id: string) {
         lastSyncedAt: formatTime(project.updatedAt),
         baseGradeRange: "-", // Placeholder
         depthRange: "0-50m", // Placeholder
+        aoi: project.aoi, // Pass GeoJSON
       };
 
       return transformedProject;
@@ -174,6 +175,21 @@ export function useUploadDocument() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       return data.data; // { id, filename, status }
+    },
+  });
+}
+
+export function useUpdateProjectStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const { data } = await api.patch(`/projects/${id}/status`, { status });
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 }

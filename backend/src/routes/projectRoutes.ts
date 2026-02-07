@@ -13,6 +13,7 @@ router.get('/:id/voxels', protect, ProjectController.getProjectVoxels);
 // Async Inference
 router.post('/:id/inference/start', protect, ProjectController.startInference);
 router.get('/:id/status', protect, ProjectController.getInferenceStatus);
+router.patch('/:id/status', protect, ProjectController.updateProjectStatus);
 
 // Legacy / Specialized Operations
 router.post('/predict', ProjectController.createInference);

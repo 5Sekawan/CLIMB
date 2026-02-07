@@ -7,14 +7,10 @@ dist/
 backend/dist/
 build/
 .next/
+frontend/.next/
 out/
 bin/
 obj/
-
-# Cache
-cache/
-.cache/
-*.cache/
 
 # TypeScript Generated Files (Prevent committing compiled JS in src)
 backend/src/**/*.js

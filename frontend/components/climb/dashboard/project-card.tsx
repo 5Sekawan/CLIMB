@@ -7,8 +7,16 @@ import {
   ChevronRightIcon,
   MountainIcon,
 } from "@/components/climb/icons";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import Link from "next/link";
 import type { ProjectSummary } from "@/lib/mock-data";
+import { useUpdateProjectStatus } from "@/hooks/use-projects";
+import { ChevronDown } from "lucide-react";
 
 interface ProjectCardProps {
   project: ProjectSummary;
@@ -22,7 +30,12 @@ const statusConfig = {
 } as const;
 
 export function ProjectCard({ project, className }: ProjectCardProps) {
+  const updateStatus = useUpdateProjectStatus();
   const isClickable = project.status !== "inactive";
+
+  const handleStatusChange = (status: string) => {
+    updateStatus.mutate({ id: project.id, status });
+  };
 
   const content = (
     <div
@@ -65,14 +78,33 @@ export function ProjectCard({ project, className }: ProjectCardProps) {
           >
             {project.driftStatus === "stable" ? "Stable" : "Drifting"}
           </CBadge>
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
-              statusConfig[project.status].badgeClass,
-            )}
-          >
-            {statusConfig[project.status].label}
-          </span>
+          
+          <div onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={cn(
+                    "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold hover:opacity-80 transition-opacity",
+                    statusConfig[project.status].badgeClass,
+                  )}
+                >
+                  {statusConfig[project.status].label}
+                  <ChevronDown className="ml-1 h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleStatusChange("active")}>
+                  Active
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStatusChange("finished")}>
+                  Finished
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleStatusChange("inactive")}>
+                  Inactive
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 

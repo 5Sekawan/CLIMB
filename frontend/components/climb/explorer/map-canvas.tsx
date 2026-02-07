@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import { cn } from "@/lib/utils";
 import { VoxelLegend } from "@/components/climb/ui";
 import DeckGL from '@deck.gl/react';
-import { PointCloudLayer } from '@deck.gl/layers';
+import { PointCloudLayer, GeoJsonLayer } from '@deck.gl/layers';
 import { BitmapLayer } from '@deck.gl/layers';
 import { TileLayer } from '@deck.gl/geo-layers';
 import { MapView, FirstPersonView } from '@deck.gl/core';
@@ -17,6 +17,7 @@ interface MapCanvasProps {
   projectName: string;
   center: string;
   projectId?: string; // Needed to fetch voxels
+  aoi?: any; // GeoJSON
 }
 
 // --- Constants ---
@@ -54,7 +55,8 @@ export function MapCanvas({
   selectedMineral,
   projectName,
   center,
-  projectId
+  projectId,
+  aoi
 }: MapCanvasProps) {
   
   // 1. Fetch Voxel Data
@@ -76,9 +78,20 @@ export function MapCanvas({
     return INITIAL_VIEW_STATE;
   }, [center]);
 
-  // 3. Construct Voxel Layer
+  // 3. Construct Layers
   const layers = [
     tileLayer,
+    // AOI Layer (Polygon)
+    aoi ? new GeoJsonLayer({
+      id: 'aoi-layer',
+      data: aoi,
+      stroked: true,
+      filled: true,
+      lineWidthMinPixels: 2,
+      getLineColor: [16, 185, 129], // climb-mint
+      getFillColor: [16, 185, 129, 40], // climb-mint transparent
+    }) : null,
+    // Voxels
     voxels && voxels.length > 0 ? new PointCloudLayer({
       id: 'voxel-layer',
       data: voxels,

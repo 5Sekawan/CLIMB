@@ -51,9 +51,29 @@ const STEPS: Step[] = [
 ];
 
 // ─── Helper Components ────────────────────────────────────────
+function getCenter(points: google.maps.LatLngLiteral[]) {
+  if (points.length === 0) return { lat: 0, lng: 0 };
+  const lat = points.reduce((sum, p) => sum + p.lat, 0) / points.length;
+  const lng = points.reduce((sum, p) => sum + p.lng, 0) / points.length;
+  return { lat, lng };
+}
+
+function sortPointsClockwise(points: google.maps.LatLngLiteral[]) {
+  if (points.length < 3) return points;
+  const center = getCenter(points);
+  return [...points].sort((a, b) => {
+    const angleA = Math.atan2(a.lng - center.lng, a.lat - center.lat);
+    const angleB = Math.atan2(b.lng - center.lng, b.lat - center.lat);
+    return angleB - angleA; // Clockwise
+  });
+}
+
 function PolygonLayer({ points }: { points: google.maps.LatLngLiteral[] }) {
   const map = useMap();
   const polygonRef = useRef<google.maps.Polygon | null>(null);
+
+  // Auto-sort points to prevent self-intersections
+  const sortedPoints = useMemo(() => sortPointsClockwise(points), [points]);
 
   React.useEffect(() => {
     if (!map) return;
@@ -69,9 +89,8 @@ function PolygonLayer({ points }: { points: google.maps.LatLngLiteral[] }) {
       polygonRef.current.setMap(map);
     }
 
-    // Update paths
-    const path = points.map(p => ({ lat: p.lat, lng: p.lng }));
-    polygonRef.current.setPath(path);
+    // Update paths with sorted points
+    polygonRef.current.setPath(sortedPoints);
 
     return () => {
       if (polygonRef.current) {
@@ -79,7 +98,7 @@ function PolygonLayer({ points }: { points: google.maps.LatLngLiteral[] }) {
         polygonRef.current = null;
       }
     };
-  }, [map, points]);
+  }, [map, sortedPoints]);
 
   return null;
 }
@@ -109,13 +128,37 @@ export default function CreateNewAOIPage() {
   // Toast
   const [toast, setToast] = useState({ visible: false, message: "", type: "success" as "success" | "error" });
 
+  // Ref to track dragging state to prevent map click conflict
+  const isDraggingMarker = useRef(false);
+
   // ─── Handlers ─────────────────────────────────────────────────
 
   const handleMapClick = useCallback((e: MapMouseEvent) => {
+    // Prevent adding a point if we just finished dragging a marker
+    if (isDraggingMarker.current) return;
+    
     if (currentStep !== 1 || !e.detail.latLng) return;
     setPins(prev => [...prev, { lat: e.detail.latLng!.lat, lng: e.detail.latLng!.lng }]);
     setCoordError("");
   }, [currentStep]);
+
+  const handleMarkerDragStart = useCallback(() => {
+    isDraggingMarker.current = true;
+  }, []);
+
+  const handleMarkerDragEnd = useCallback((index: number, e: google.maps.MapMouseEvent) => {
+    if (!e.latLng) return;
+    setPins(prev => {
+      const newPins = [...prev];
+      newPins[index] = { lat: e.latLng!.lat(), lng: e.latLng!.lng() };
+      return newPins;
+    });
+    
+    // Reset dragging flag after a short delay to ensure click event doesn't fire
+    setTimeout(() => {
+      isDraggingMarker.current = false;
+    }, 100);
+  }, []);
 
   const addPinFromInput = useCallback(() => {
     if (!coordinateInput.trim()) {
@@ -164,9 +207,12 @@ export default function CreateNewAOIPage() {
   const handleSave = useCallback(() => {
     if (projectName.length < 3 || pins.length < 3) return;
 
+    // Use sorted pins for submission to ensure valid geometry
+    const sortedPins = sortPointsClockwise(pins);
+
     // Validate Polygon (Self-Intersection Check)
     try {
-      const coordinates = pins.map(p => [p.lng, p.lat]);
+      const coordinates = sortedPins.map(p => [p.lng, p.lat]);
       // Close the loop for turf validation
       const closedCoords = [...coordinates, coordinates[0]];
       const poly = polygon([closedCoords]);
@@ -186,7 +232,7 @@ export default function CreateNewAOIPage() {
 
     createProject.mutate({
       name: projectName,
-      pins: pins,
+      pins: sortedPins, // Send sorted pins
       selectedDocuments: documents
         .filter(d => d.selected && d.status === 'ready')
         .map(d => d.id)
@@ -386,8 +432,21 @@ export default function CreateNewAOIPage() {
               className="h-full w-full"
             >
               {pins.map((p, i) => (
-                <AdvancedMarker key={i} position={p}>
-                  <div className="relative flex items-center justify-center -translate-y-1/2">
+                <AdvancedMarker 
+                  key={i} 
+                  position={p} 
+                  draggable={true} 
+                  onDragStart={handleMarkerDragStart}
+                  onDragEnd={(e) => handleMarkerDragEnd(i, e)}
+                >
+                  <div 
+                    className="relative flex items-center justify-center -translate-y-1/2 cursor-grab active:cursor-grabbing"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      removePin(i);
+                    }}
+                  >
                     <div className="h-3 w-3 rounded-full bg-climb-mint border-2 border-white shadow-md" />
                     <div className="absolute -top-6 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
                       {i + 1}

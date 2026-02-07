@@ -35,6 +35,7 @@ export interface ProjectDetail extends ProjectSummary {
   cogDefault: number;
   baseTonnage: number;
   baseNetValue: number;
+  aoi?: any; // GeoJSON Polygon
 }
 
 export interface MineralLayer {

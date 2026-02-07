@@ -119,6 +119,8 @@ function ExplorerStudio({
             selectedMineral={selectedMineral}
             projectName={project.name}
             center={project.center}
+            projectId={project.id}
+            aoi={project.aoi}
           />
 
           {/* Floating Tool Dock */}
