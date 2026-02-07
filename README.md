@@ -70,7 +70,7 @@ Ensure your MongoDB instance is running (via Docker) and BigQuery datasets are c
 
 | Group Name | Member Name |
 | :--- | :--- |
-| **5 sekawan mwncari cuan** | I Nyoman Rai Dharma Wiguna |
+| **5 sekawan mencari cuan** | I Nyoman Rai Dharma Wiguna |
 | | Luh Puniayogi Suaryani |
 | | Muhammad Khalfani Shaquille Indrajaya |
 | | Nur'aini Fauziah Zahra |
