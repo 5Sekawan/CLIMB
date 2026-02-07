@@ -69,8 +69,8 @@ export class InferenceService {
       Logger.info(`[Pipeline] Using Mock Parameters:`, params);
 
       // 3. Procedural Voxel Generation
-      Logger.info(`[Pipeline] Generating spatial grid (10m res)...`);
-      const voxels = SpatialGridService.generateVoxels(polygon as [number, number][], 50, 10);
+      Logger.info(`[Pipeline] Generating spatial grid (50m res)...`);
+      const voxels = SpatialGridService.generateVoxels(polygon as [number, number][], 50, 50);
       
       Logger.info(`[Pipeline] Applying model to ${voxels.length} voxels...`);
       
