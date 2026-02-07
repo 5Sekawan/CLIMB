@@ -25,10 +25,11 @@ export class InferenceService {
   }
 
   /**
-   * Background Worker for Full Inference Pipeline (Parametric V3.0)
+   * Background Worker for Full Inference Pipeline (DEMO / MOCK MODE)
+   * Bypasses GEE/Vertex AI to ensure stability for presentation.
    */
   static async runInferencePipeline(projectId: string) {
-    Logger.job('InferencePipeline', 'START', `Starting background job for project: ${projectId}`);
+    Logger.job('InferencePipeline', 'START', `Starting DEMO inference for project: ${projectId}`);
     
     try {
       const project = await Project.findById(projectId);
@@ -36,72 +37,38 @@ export class InferenceService {
 
       await ActivityService.log('inference', `Started inference pipeline for ${project.name}`, projectId, project.name);
 
-      // 1. Context Gathering
+      // 1. Context Gathering (MOCKED)
       const polygon = project.aoi.coordinates[0]; // GeoJSON format
       
-      // GEE (Satellite)
-      const geojson = { type: 'Polygon', coordinates: [polygon] };
-      Logger.info(`[Pipeline] Fetching Satellite context for ${project.name}`);
-      const [ndvi, thermal, swir] = await Promise.all([
-        SatelliteService.getNDVI(geojson),
-        SatelliteService.getThermalAnomaly(geojson),
-        SatelliteService.getSWIR(geojson)
-      ]);
+      // Simulate Processing Delay (3 Seconds)
+      Logger.info('[Pipeline] Simulating Satellite & AI Analysis...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
-      // RAG & External Data
-      const centerPt = turf.center(geojson as any);
-      const [lon, lat] = centerPt.geometry.coordinates;
+      // Mocked Context Data
+      const ndvi = 0.65;
+      const thermal = 24.5;
+      const swir = 1.8; // High alteration
+      const ragSnippets = [{ content: "Geological report indicates potential high-sulfidation epithermal system." }];
+      const nearestData = [
+        { site_name: "Batu Hijau Reference", distance_meters: 15000, grade: "0.5% Cu", source: "Kaggle" },
+        { site_name: "Tujuh Bukit", distance_meters: 45000, grade: "0.8 g/t Au", source: "Kaggle" }
+      ];
+
+      // 2. AI Parameter Generation (HARDCODED / MOCKED)
+      // These parameters generate a nice looking ore body
+      const params = {
+        "au_base_grade": 1.2,
+        "cu_base_grade": 0.6,
+        "trend_azimuth": 45, // NE Trend
+        "trend_dip": 0,
+        "depth_decay_factor": 0.015,
+        "noise_variability": 0.15,
+        "reasoning": "DEMO MODE: High-confidence potential detected based on simulated strong thermal anomaly and structural trend."
+      };
       
-      Logger.info(`[Pipeline] Querying RAG and External data near ${lat}, ${lon}`);
-      const [ragSnippets, nearestData] = await Promise.all([
-        RAGService.searchKnowledge(`Geology and minerals near ${lat}, ${lon}`, 3),
-        ExternalDataService.getNearestDeposits(lat, lon, 5)
-      ]);
-
-      // 2. AI Parameter Generation (Reasoning)
-      const prompt = `
-        System: You are an expert Geostatistician AI.
-        Task: Define a 3D Grade Distribution Model (Mathematical Parameters) for a mining block.
-        
-        Context:
-        - Location: ${project.location}
-        - Surface: NDVI=${ndvi.toFixed(2)}, Thermal=${thermal.toFixed(2)}C, SWIR_Ratio=${swir.toFixed(2)}
-        - Nearby Deposits: ${JSON.stringify(nearestData.map(d => ({ 
-            name: d.site_name, 
-            status: d.metadata?.dev_stat || 'Unknown', 
-            grade_proxy: d.grade ? `${d.grade}` : 'Qualitative'
-          })))}
-        - Geological Reports: ${JSON.stringify(ragSnippets.map(r => r.content.substring(0, 100)))}
-        
-        Target Minerals: ${project.minerals.join(', ')}.
-        
-        Instructions:
-        Instead of listing voxels, define the statistical parameters for the grade distribution.
-        If data is weak, use conservative estimates.
-        
-        Output ONLY valid JSON:
-        {
-          "au_base_grade": number (g/t, e.g., 0.5 - 5.0),
-          "cu_base_grade": number (%, e.g., 0.1 - 2.0),
-          "trend_azimuth": number (0-360 degrees direction of mineralization),
-          "trend_dip": number (0-90 degrees dip),
-          "depth_decay_factor": number (0.0 - 0.1, grade loss per meter depth),
-          "noise_variability": number (0.0 - 0.5, randomness factor),
-          "reasoning": "string"
-        }
-      `;
-
-      Logger.info(`[Pipeline] Requesting Gemini parameters...`);
-      const result = await generativeModel.generateContent(prompt);
-      const response = result.response;
-      const text = (response.candidates && response.candidates[0].content.parts[0].text) || (response as any).text();
-      
-      const jsonStr = text.replace(/```json|```/g, '').trim();
-      const params = JSON.parse(jsonStr);
-      Logger.info(`[Pipeline] Gemini Parameters:`, params);
+      Logger.info(`[Pipeline] Using Mock Parameters:`, params);
 
       // 3. Procedural Voxel Generation
-      // Optimization: Increase voxel size to 10m to reduce object count by 4x-8x
       Logger.info(`[Pipeline] Generating spatial grid (10m res)...`);
       const voxels = SpatialGridService.generateVoxels(polygon as [number, number][], 50, 10);
       
@@ -110,7 +77,7 @@ export class InferenceService {
       const centerLon = polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length;
       const centerLat = polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length;
 
-      // Mathematical Application of AI Parameters
+      // Mathematical Application of Parameters
       const processedVoxels = voxels.map(v => {
         // Distance from center along trend vector
         const dx = (v.lon - centerLon) * 111000; // meters
@@ -120,21 +87,18 @@ export class InferenceService {
         const rad = (params.trend_azimuth || 0) * (Math.PI / 180);
         const distTrend = dx * Math.cos(rad) + dy * Math.sin(rad);
         
+        // Create a "Core" effect (Higher grade in center)
+        const distFromCenter = Math.sqrt(dx*dx + dy*dy);
+        const coreFactor = Math.max(0, 1 - (distFromCenter / 500)); // Decay over 500m
+
         // Grade Calculation
-        // Grade = Base + Trend - DepthDecay + Noise
-        // Simplified Logic:
-        let au = (params.au_base_grade || 0) + (distTrend * 0.0001) - (v.z * (params.depth_decay_factor || 0.01));
-        let cu = (params.cu_base_grade || 0) + (distTrend * 0.00005) - (v.z * (params.depth_decay_factor || 0.01));
+        let au = (params.au_base_grade || 0) * coreFactor - (v.z * (params.depth_decay_factor || 0.01));
+        let cu = (params.cu_base_grade || 0) * coreFactor - (v.z * (params.depth_decay_factor || 0.01));
         
         // Add Noise
         const noise = (Math.random() - 0.5) * 2 * (params.noise_variability || 0.1);
         au = Math.max(0, au * (1 + noise));
         cu = Math.max(0, cu * (1 + noise));
-
-        // Thermal Boost (Heuristic)
-        if (thermal > 2.0) {
-          au *= 1.1; // 10% boost for high thermal
-        }
 
         return {
           id: v.id,
@@ -147,7 +111,7 @@ export class InferenceService {
         };
       });
 
-      // 4. Save to File System (Avoiding MongoDB 16MB Limit)
+      // 4. Save to File System
       if (!fs.existsSync(STORAGE_DIR)) {
         fs.mkdirSync(STORAGE_DIR, { recursive: true });
       }
@@ -159,20 +123,19 @@ export class InferenceService {
       Logger.info(`[Pipeline] Saved ${processedVoxels.length} voxels to ${filePath}`);
 
       // 5. Update Project Document
-      // Clear legacy inferenceResults if any to free up DB space
       project.inferenceResults = undefined; 
-      project.voxelDataUrl = `/api/storage/${fileName}`; // Public URL path
+      project.voxelDataUrl = `/api/storage/${fileName}`;
       
       project.cachedContext = {
         ragSummary: {
-          short: `AI Parametric Model: ${params.reasoning.substring(0, 100)}...`,
+          short: `AI Analysis: ${params.reasoning}`,
           long: params.reasoning,
-          sourceRef: "Gemini 1.5 Pro Parametric Engine"
+          sourceRef: "CLIMB AI Engine (Demo)"
         },
         nearestDeposits: nearestData.map(d => ({
           name: d.site_name,
-          distance: `${d.distance_meters?.toFixed(0)}m`,
-          grade: d.grade ? `${d.grade} ${d.unit}` : 'Qualitative',
+          distance: `${d.distance_meters}m`,
+          grade: d.grade,
           source: d.source
         })),
         surfaceFeatures: { ndvi, thermal, swir }
@@ -188,7 +151,6 @@ export class InferenceService {
 
     } catch (error) {
       Logger.error(`InferencePipeline failed for ${projectId}`, error);
-      // Revert status on error
       await Project.findByIdAndUpdate(projectId, { status: 'active' }); 
     }
   }
