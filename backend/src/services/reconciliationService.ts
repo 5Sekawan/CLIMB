@@ -18,6 +18,7 @@ export interface ReconciliationSummary {
   varianceCu: number;
   status: 'STABLE' | 'DRIFTING';
   lessonsLearned: string;
+  blockDetails?: any[]; // Detailed block data for visualization
 }
 
 export class ReconciliationService {
@@ -28,19 +29,44 @@ export class ReconciliationService {
     let totalDiffAu = 0;
     let totalDiffCu = 0;
     let matchCount = 0;
+    const blockDetails: any[] = [];
 
     actuals.forEach(actual => {
       // Find nearest predicted voxel based on 3D distance
-      const nearest = predictedVoxels.reduce((prev, curr) => {
-        const distPrev = Math.sqrt(Math.pow(prev.lat - actual.lat, 2) + Math.pow(prev.lon - actual.lon, 2) + Math.pow(prev.z - actual.depth, 2));
-        const distCurr = Math.sqrt(Math.pow(curr.lat - actual.lat, 2) + Math.pow(curr.lon - actual.lon, 2) + Math.pow(curr.z - actual.depth, 2));
-        return distPrev < distCurr ? prev : curr;
+      // Optimization: This is O(N*M). For production use K-D Tree.
+      let minDist = Infinity;
+      let nearest: any = null;
+
+      // Simple heuristic: filter by lat/lon first to reduce search space
+      const candidates = predictedVoxels.filter(v => 
+        Math.abs(v.lat - actual.lat) < 0.0005 && 
+        Math.abs(v.lon - actual.lon) < 0.0005
+      );
+
+      candidates.forEach(curr => {
+        const dist = Math.sqrt(Math.pow(curr.lat - actual.lat, 2) + Math.pow(curr.lon - actual.lon, 2) + Math.pow(curr.z - actual.depth, 2));
+        if (dist < minDist) {
+          minDist = dist;
+          nearest = curr;
+        }
       });
 
       if (nearest) {
-        totalDiffAu += (actual.actualGradeAu - nearest.au_grade);
-        totalDiffCu += (actual.actualGradeCu - nearest.cu_grade);
+        const diffAu = actual.actualGradeAu - (nearest.au_grade || 0);
+        const diffCu = actual.actualGradeCu - (nearest.cu_grade || 0);
+        
+        totalDiffAu += diffAu;
+        totalDiffCu += diffCu;
         matchCount++;
+
+        blockDetails.push({
+          lat: actual.lat,
+          lon: actual.lon,
+          z: actual.depth,
+          actualAu: actual.actualGradeAu,
+          predAu: nearest.au_grade,
+          varianceAu: diffAu
+        });
       }
     });
 
@@ -62,7 +88,8 @@ export class ReconciliationService {
       varianceAu: avgDiffAu,
       varianceCu: avgDiffCu,
       status,
-      lessonsLearned
+      lessonsLearned,
+      blockDetails
     };
   }
 

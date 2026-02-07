@@ -6,6 +6,7 @@ import { SpatialGridService } from './spatialGridService';
 import type { Voxel } from './spatialGridService';
 import { Project } from '../models/Project';
 import * as turf from '@turf/turf';
+import { ActivityService } from './activityService';
 
 export class InferenceService {
   /**
@@ -89,6 +90,8 @@ export class InferenceService {
       const project = await Project.findById(projectId);
       if (!project) throw new Error('Project not found');
 
+      await ActivityService.log('inference', `Started inference pipeline for ${project.name}`, projectId, project.name);
+
       // 1. Context Gathering
       const polygon = project.aoi.coordinates[0]; // GeoJSON format
       
@@ -170,12 +173,31 @@ export class InferenceService {
       project.lastInferenceAt = new Date();
       await project.save();
 
+      await ActivityService.log('inference', `Completed voxel generation and context synthesis`, projectId, project.name);
       console.log(`[Inference Job] Completed for ${projectId}`);
 
     } catch (error) {
       console.error(`[Inference Job] Failed for ${projectId}:`, error);
       // Revert status on error
       await Project.findByIdAndUpdate(projectId, { status: 'active' }); // Or 'failed' state if we add it
+    }
+  }
+
+  /**
+   * Resets projects stuck in 'processing' state upon server restart.
+   */
+  static async cleanupStaleJobs() {
+    try {
+      const result = await Project.updateMany(
+        { status: 'processing' },
+        { $set: { status: 'active' } } // Reset to active so they can be re-run
+      );
+      if (result.modifiedCount > 0) {
+        console.log(`[System] Reset ${result.modifiedCount} stale 'processing' projects to 'active'.`);
+        ActivityService.log('system', `System startup: Reset ${result.modifiedCount} stale jobs.`);
+      }
+    } catch (error) {
+      console.error('[System] Failed to cleanup stale jobs:', error);
     }
   }
 }

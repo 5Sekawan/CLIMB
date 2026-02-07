@@ -1,17 +1,18 @@
 import { Router } from 'express';
 import { ProjectController } from '../controllers/projectController';
+import { protect } from '../middleware/authMiddleware';
 
 const router = Router();
 
 // CRUD Operations
-router.get('/', ProjectController.getProjects);
-router.post('/', ProjectController.createProject);
-router.get('/:id', ProjectController.getProject);
-router.get('/:id/voxels', ProjectController.getProjectVoxels);
+router.get('/', protect, ProjectController.getProjects);
+router.post('/', protect, ProjectController.createProject);
+router.get('/:id', protect, ProjectController.getProject);
+router.get('/:id/voxels', protect, ProjectController.getProjectVoxels);
 
 // Async Inference
-router.post('/:id/inference/start', ProjectController.startInference);
-router.get('/:id/status', ProjectController.getInferenceStatus);
+router.post('/:id/inference/start', protect, ProjectController.startInference);
+router.get('/:id/status', protect, ProjectController.getInferenceStatus);
 
 // Legacy / Specialized Operations
 router.post('/predict', ProjectController.createInference);

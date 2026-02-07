@@ -6,6 +6,9 @@ import { Database } from './config/database';
 import projectRoutes from './routes/projectRoutes';
 import knowledgeRoutes from './routes/knowledgeRoutes';
 import reconciliationRoutes from './routes/reconciliationRoutes';
+import activityRoutes from './routes/activityRoutes';
+import authRoutes from './routes/authRoutes';
+import { InferenceService } from './services/inferenceService';
 
 dotenv.config();
 
@@ -14,7 +17,10 @@ const port = process.env.PORT || 8080;
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 // Connect to Database
-Database.connect();
+Database.connect().then(() => {
+  // Run cleanup on DB connect
+  InferenceService.cleanupStaleJobs();
+});
 
 // Middleware
 // 1. CORS (Allow All Origins)
@@ -52,6 +58,8 @@ app.use('/api/reconciliation/upload', heavyLimiter);
 app.use('/api/projects', projectRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/reconciliation', reconciliationRoutes);
+app.use('/api/activity', activityRoutes);
+app.use('/api/auth', authRoutes);
 
 // Health Check
 app.get('/health', (req, res) => {

@@ -5,6 +5,7 @@ import { ReconciliationService, ActualData } from '../services/reconciliationSer
 import { Project } from '../models/Project';
 import { bigquery, generativeModel } from '../config/gcp';
 import { RAGService } from '../services/ragService';
+import { ActivityService } from '../services/activityService';
 
 // --- Validation Schemas ---
 const uploadActualsSchema = z.object({
@@ -85,6 +86,13 @@ export class ReconciliationController {
         await project.save();
       }
 
+      await ActivityService.log(
+        'reconciliation', 
+        `Processed ${actuals.length} actual data points. Status: ${summary.status}`, 
+        projectId, 
+        project.name
+      );
+
       res.status(200).json({
         success: true,
         summary,
@@ -130,6 +138,13 @@ export class ReconciliationController {
       }];
 
       await bigquery.dataset(datasetId!).table(tableId!).insert(rows);
+
+      await ActivityService.log(
+        'reconciliation',
+        'Injected new "Lesson Learned" into Knowledge Base based on drift analysis',
+        projectId || 'global',
+        projectId ? 'Project Feedback' : 'Global Feedback'
+      );
 
       res.status(200).json({ success: true, message: 'Feedback injected successfully' });
 

@@ -78,6 +78,7 @@ export interface IProject extends Document {
   driftStatus: 'stable' | 'drifting';
   confidence: number; // 0-100
   lastInferenceAt?: Date;
+  createdBy: mongoose.Types.ObjectId; // User ID
 
   // --- Cached Context (Persisted from Inference) ---
   cachedContext?: ICachedContext;
@@ -164,6 +165,7 @@ const ProjectSchema = new Schema<IProject>({
   },
   confidence: { type: Number, default: 0 },
   lastInferenceAt: Date,
+  createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: false }, // Optional for now to support legacy data
 
   // Cache
   cachedContext: {

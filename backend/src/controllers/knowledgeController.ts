@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { DocumentModel } from '../models/Document';
 import { RAGService } from '../services/ragService';
+import { ActivityService } from '../services/activityService';
 
 export class KnowledgeController {
   
@@ -29,6 +30,13 @@ export class KnowledgeController {
       });
 
       await newDoc.save();
+
+      await ActivityService.log(
+        'system',
+        `Uploaded document for RAG ingestion: ${file.originalname}`,
+        undefined,
+        'Knowledge Base'
+      );
 
       // 2. Trigger Async Processing (Fire & Forget)
       // We do NOT await this to prevent timeout

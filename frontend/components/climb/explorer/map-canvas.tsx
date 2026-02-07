@@ -1,156 +1,149 @@
 "use client";
 
+import React, { useMemo } from 'react';
 import { cn } from "@/lib/utils";
 import { VoxelLegend } from "@/components/climb/ui";
+import DeckGL from '@deck.gl/react';
+import { PointCloudLayer } from '@deck.gl/layers';
+import { BitmapLayer } from '@deck.gl/layers';
+import { TileLayer } from '@deck.gl/geo-layers';
+import { MapView, FirstPersonView } from '@deck.gl/core';
+import { useProjectVoxels } from "@/hooks/use-projects";
 
+// --- Types ---
 interface MapCanvasProps {
   className?: string;
   selectedMineral: string;
   projectName: string;
   center: string;
+  projectId?: string; // Needed to fetch voxels
 }
+
+// --- Constants ---
+const INITIAL_VIEW_STATE = {
+  longitude: 116.842, // Default to Indo center
+  latitude: -1.523,
+  zoom: 14,
+  pitch: 45,
+  bearing: 0,
+  minZoom: 2,
+  maxZoom: 20,
+};
+
+// OpenStreetMap Tile Layer (Free, no key required)
+const tileLayer = new TileLayer({
+  data: 'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  minZoom: 0,
+  maxZoom: 19,
+  tileSize: 256,
+  renderSubLayers: (props: any) => {
+    const {
+      bbox: {west, south, east, north}
+    } = props.tile;
+
+    return new BitmapLayer(props, {
+      data: null,
+      image: props.data,
+      bounds: [west, south, east, north]
+    });
+  }
+});
 
 export function MapCanvas({
   className,
   selectedMineral,
   projectName,
   center,
+  projectId
 }: MapCanvasProps) {
+  
+  // 1. Fetch Voxel Data
+  // If projectId is missing (e.g. mock mode), we pass undefined which disables the query
+  const { data: voxels, isLoading } = useProjectVoxels(projectId || "");
+
+  // 2. Parse Center for View State
+  const viewState = useMemo(() => {
+    if (!center) return INITIAL_VIEW_STATE;
+    const parts = center.split(',').map(s => parseFloat(s.replace(/[^\d.-]/g, '')));
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      // Assuming "lat, lon" format from string
+      return {
+        ...INITIAL_VIEW_STATE,
+        latitude: parts[0],
+        longitude: parts[1],
+      };
+    }
+    return INITIAL_VIEW_STATE;
+  }, [center]);
+
+  // 3. Construct Voxel Layer
+  const layers = [
+    tileLayer,
+    voxels && voxels.length > 0 ? new PointCloudLayer({
+      id: 'voxel-layer',
+      data: voxels,
+      pickable: true,
+      coordinateSystem: undefined, // LNGLAT
+      coordinateOrigin: [0, 0, 0],
+      getPosition: (d: any) => [d.x, d.y, d.z * 10], // Exaggerate Z for visibility
+      getNormal: [0, 1, 0],
+      getColor: (d: any) => {
+        // Dynamic color based on selected mineral
+        const grade = selectedMineral === 'Au' ? d.au_grade : d.cu_grade;
+        // Simple heatmap: Blue (low) -> Green -> Red (high)
+        // Normalize 0-5 g/t
+        const n = Math.min(Math.max(grade || 0, 0), 5) / 5;
+        return [255 * n, 255 * (1 - Math.abs(0.5 - n) * 2), 255 * (1 - n)];
+      },
+      pointSize: 5, // Pixels
+      onHover: (info: any) => {
+        // console.log('Hover:', info.object);
+      }
+    }) : null
+  ];
+
   return (
-    <div className={cn("relative h-full w-full overflow-hidden", className)}>
-      {/* Simulated 3D Map Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950">
-        {/* Grid overlay simulation */}
-        <div className="absolute inset-0 opacity-20">
-          <svg width="100%" height="100%" className="text-primary/20">
-            <defs>
-              <pattern
-                id="grid"
-                width="40"
-                height="40"
-                patternUnits="userSpaceOnUse"
-              >
-                <path
-                  d="M 40 0 L 0 0 0 40"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="0.5"
-                />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-        </div>
+    <div className={cn("relative h-full w-full overflow-hidden bg-slate-950", className)}>
+      <DeckGL
+        initialViewState={viewState}
+        controller={true}
+        layers={layers}
+        getTooltip={({object}: any) => object && {
+          html: `
+            <div style="font-family: monospace; font-size: 12px;">
+              <div><b>ID:</b> ${object.id}</div>
+              <div><b>${selectedMineral}:</b> ${object[`${selectedMineral.toLowerCase()}_grade`]?.toFixed(2)}</div>
+              <div><b>Depth:</b> ${object.z}m</div>
+            </div>
+          `
+        }}
+      >
+      </DeckGL>
 
-        {/* Simulated terrain contours */}
-        <svg
-          className="absolute inset-0 h-full w-full opacity-30"
-          viewBox="0 0 800 600"
-          preserveAspectRatio="none"
-        >
-          <path
-            d="M0 400 Q100 350 200 380 Q350 330 400 360 Q500 300 600 340 Q700 310 800 350 L800 600 L0 600 Z"
-            fill="hsl(160 40% 20%)"
-            opacity="0.5"
-          />
-          <path
-            d="M0 420 Q150 380 250 400 Q400 360 500 390 Q650 350 800 380 L800 600 L0 600 Z"
-            fill="hsl(160 40% 15%)"
-            opacity="0.5"
-          />
-        </svg>
-
-        {/* Simulated Voxel Grid */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="grid grid-cols-8 grid-rows-6 gap-1 p-8 opacity-70">
-            {Array.from({ length: 48 }).map((_, i) => {
-              const row = Math.floor(i / 8);
-              const col = i % 8;
-              const dist = Math.sqrt(
-                Math.pow(row - 3, 2) + Math.pow(col - 4, 2),
-              );
-              const grade = Math.max(0.1, 1 - dist * 0.15);
-              const isHighGrade = grade > 0.6;
-              const isMidGrade = grade > 0.35 && grade <= 0.6;
-
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    "h-8 w-10 rounded-sm border transition-all duration-climb-fast cursor-crosshair",
-                    "hover:scale-110 hover:z-10 hover:shadow-[0_0_12px_rgba(16,185,129,0.5)]",
-                    isHighGrade && "bg-climb-mint/60 border-climb-mint/40",
-                    isMidGrade &&
-                      "bg-climb-marginal/40 border-climb-marginal/30",
-                    !isHighGrade &&
-                      !isMidGrade &&
-                      "bg-climb-waste/20 border-climb-waste/15",
-                  )}
-                  style={{
-                    opacity: Math.max(0.2, grade),
-                    transform: `perspective(600px) rotateX(35deg) rotateZ(-15deg) translateY(${row * 2}px)`,
-                  }}
-                  title={`Block (${col}, ${row}): ${selectedMineral} ${(grade * 5).toFixed(2)} g/t`}
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        {/* AOI Polygon Overlay */}
-        <svg
-          className="absolute inset-0 h-full w-full pointer-events-none"
-          viewBox="0 0 800 600"
-        >
-          <polygon
-            points="200,150 550,130 600,350 450,430 180,380"
-            fill="hsl(160 84% 39% / 0.08)"
-            stroke="hsl(160 84% 39%)"
-            strokeWidth="2"
-            strokeDasharray="8,4"
-          />
-          {/* Coordinate markers */}
-          {[
-            [200, 150],
-            [550, 130],
-            [600, 350],
-            [450, 430],
-            [180, 380],
-          ].map(([x, y], i) => (
-            <circle
-              key={i}
-              cx={x}
-              cy={y}
-              r="4"
-              fill="hsl(160 84% 39%)"
-              stroke="white"
-              strokeWidth="1.5"
-            />
-          ))}
-        </svg>
-
-        {/* Project name badge on map */}
-        <div className="absolute top-3 right-3 rounded-md bg-black/50 px-3 py-1.5 backdrop-blur-sm">
-          <span className="text-xs font-semibold text-white/90">
-            {projectName}
-          </span>
-        </div>
-
-        {/* Coordinate info -- dynamic */}
-        <div className="absolute bottom-3 left-3 rounded-md bg-black/50 px-2.5 py-1 font-mono text-[10px] text-white/60 backdrop-blur-sm">
-          {center}
-          {" | Zoom: 15.4x"}
-        </div>
+      {/* Overlays */}
+      <div className="absolute top-3 right-3 rounded-md bg-black/50 px-3 py-1.5 backdrop-blur-sm pointer-events-none">
+        <span className="text-xs font-semibold text-white/90">
+          {projectName}
+        </span>
       </div>
 
-      {/* Voxel Legend */}
+      <div className="absolute bottom-3 left-3 rounded-md bg-black/50 px-2.5 py-1 font-mono text-[10px] text-white/60 backdrop-blur-sm pointer-events-none">
+        {center}
+      </div>
+
       <VoxelLegend
         mineralName={selectedMineral}
         unit="g/t"
         minValue={0.0}
         maxValue={5.0}
-        className="absolute bottom-4 right-4"
+        className="absolute bottom-4 right-4 pointer-events-auto"
       />
+      
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm pointer-events-none">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-climb-mint" />
+        </div>
+      )}
     </div>
   );
 }

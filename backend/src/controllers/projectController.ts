@@ -5,6 +5,7 @@ import * as turf from '@turf/turf';
 import { InferenceService } from '../services/inferenceService';
 import { AnalyticsService, EconomicParams } from '../services/analyticsService';
 import { ReconciliationService, ActualData } from '../services/reconciliationService';
+import { ActivityService } from '../services/activityService';
 
 // --- Validation Schemas ---
 
@@ -45,6 +46,12 @@ export class ProjectController {
           { name: { $regex: search, $options: 'i' } },
           { location: { $regex: search, $options: 'i' } }
         ];
+      }
+
+      // RBAC: If not admin, only show own projects
+      const user = req.user;
+      if (user && user.role !== 'admin') {
+        filter.createdBy = user._id;
       }
 
       const total = await Project.countDocuments(filter);
@@ -104,6 +111,7 @@ export class ProjectController {
         name,
         location: location || "Indonesia Region", // Default or reverse-geocoded later
         description,
+        createdBy: req.user?._id, // Assign owner
         aoi: {
           type: 'Polygon',
           coordinates: [coordinates]
@@ -119,6 +127,8 @@ export class ProjectController {
       });
 
       await newProject.save();
+
+      await ActivityService.log('system', `Created new project: ${name}`, newProject.id, name);
 
       res.status(201).json({ success: true, data: newProject });
     } catch (error: any) {
