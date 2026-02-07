@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { ProjectDetail, ProjectSummary } from '@/lib/mock-data';
+import { formatDistanceToNow } from 'date-fns';
 
 // --- Types (Temporary, mirroring backend response) ---
 export interface ProjectResponse {
-  data: ProjectSummary[];
+  data: any[]; // Using any[] to allow transformation from backend type to frontend type
   meta: {
     total: number;
     page: number;
@@ -13,6 +14,23 @@ export interface ProjectResponse {
   };
 }
 
+// --- Helpers ---
+const formatTonnage = (val?: number) => {
+  if (!val) return "0 t";
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(2)}M t`;
+  if (val >= 1_000) return `${(val / 1_000).toFixed(0)}K t`;
+  return `${val} t`;
+};
+
+const formatTime = (date?: string) => {
+  if (!date) return "Never";
+  try {
+    return formatDistanceToNow(new Date(date), { addSuffix: true });
+  } catch (e) {
+    return "Unknown";
+  }
+};
+
 // --- Hooks ---
 
 export function useProjects(params?: { page?: number; status?: string; search?: string }) {
@@ -20,7 +38,22 @@ export function useProjects(params?: { page?: number; status?: string; search?: 
     queryKey: ['projects', params],
     queryFn: async () => {
       const { data } = await api.get<ProjectResponse>('/projects', { params });
-      return data;
+      
+      // Transform Backend Data to Frontend Interface (ProjectSummary)
+      const transformedProjects: ProjectSummary[] = data.data.map((p: any) => ({
+        id: p._id || p.id,
+        name: p.name,
+        location: p.location || "Unknown Location",
+        minerals: p.minerals || [],
+        driftStatus: p.driftStatus || "stable",
+        status: p.status || "active",
+        confidence: p.confidence || 0,
+        // Map Backend fields to Frontend expectations
+        estimatedTonnage: formatTonnage(p.economicParams?.baseTonnage),
+        lastInference: formatTime(p.lastInferenceAt),
+      }));
+
+      return { ...data, data: transformedProjects };
     },
   });
 }
@@ -29,8 +62,45 @@ export function useProjectDetail(id: string) {
   return useQuery({
     queryKey: ['project', id],
     queryFn: async () => {
-      const { data } = await api.get<{ success: boolean; data: ProjectDetail }>(`/projects/${id}`);
-      return data.data;
+      const { data } = await api.get<{ success: boolean; data: any }>(`/projects/${id}`);
+      const project = data.data;
+
+      // Transform Backend Data to Frontend ProjectDetail Interface
+      const transformedProject: ProjectDetail = {
+        ...project,
+        id: project._id || project.id,
+        // Map minerals (string[]) to mineralLayers (object[])
+        mineralLayers: (project.minerals || []).map((m: string) => {
+          const meta = project.mineralMetadata?.[m];
+          return {
+            id: m,
+            label: meta?.label || `${m} Mineral`,
+            color: meta?.color || "bg-gray-400" // Default color
+          };
+        }),
+        // Ensure defaults for nested objects to prevent UI crashes
+        nearestDeposits: project.cachedContext?.nearestDeposits || [],
+        ragContext: {
+          shortText: project.cachedContext?.ragSummary?.short || "No geological summary available yet.",
+          longText: project.cachedContext?.ragSummary?.long || "",
+          sourceRef: project.cachedContext?.ragSummary?.sourceRef || "System"
+        },
+        aiSummary: project.cachedContext?.ragSummary?.long || "Pending AI analysis...",
+        surfaceFeatures: project.cachedContext?.surfaceFeatures,
+        // Flatten Economic Params
+        cogDefault: project.economicParams?.cogDefault ?? 0.5,
+        baseTonnage: project.economicParams?.baseTonnage ?? 0,
+        baseNetValue: project.economicParams?.baseNetValue ?? 0,
+        // Fallbacks
+        center: project.center || "0, 0",
+        area: project.area ? `${project.area} km²` : "-",
+        elevation: project.elevation || "-",
+        lastSyncedAt: formatTime(project.updatedAt),
+        baseGradeRange: "-", // Placeholder
+        depthRange: "0-50m", // Placeholder
+      };
+
+      return transformedProject;
     },
     enabled: !!id,
   });
