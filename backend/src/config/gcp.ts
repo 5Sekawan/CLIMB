@@ -24,12 +24,13 @@ export const vertexAI = new VertexAI({
   location: location,
 });
 
+console.log(`[GCP] Initialized clients for Project: ${projectId}`);
+
 export const generativeModel = vertexAI.getGenerativeModel({
-  model: process.env.VERTEX_AI_MODEL_ID || 'gemini-3-pro-preview',
+  model: process.env.VERTEX_AI_MODEL_ID || 'gemini-1.5-pro',
 });
 
-// Use the standard method for preview models if applicable, 
-// or cast to any if the types are lagging behind the SDK features
-export const embeddingModel = (vertexAI as any).preview.getGenerativeModel({
+// Fix: Use getGenerativeModel directly for embeddings in newer SDK versions
+export const embeddingModel = vertexAI.getGenerativeModel({
   model: 'text-embedding-004',
 });

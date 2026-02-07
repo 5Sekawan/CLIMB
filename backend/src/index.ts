@@ -16,6 +16,9 @@ const app = express();
 const port = process.env.PORT || 8080;
 const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
+// Trust Proxy (Required for Rate Limiting behind Nginx/Load Balancers)
+app.set('trust proxy', 1);
+
 // Connect to Database
 Database.connect().then(() => {
   // Run cleanup on DB connect
