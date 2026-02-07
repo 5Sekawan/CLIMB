@@ -57,7 +57,20 @@ Navigate to the backend directory. Copy the environment example file to a new .e
 Navigate to the frontend directory. Copy the environment example file to a new .env file and add your Google Maps API Key. Install the dependencies and start the application.
 
 ### 4. Database Initialization
-Ensure your MongoDB instance is running (via Docker) and BigQuery datasets are created using the provided initialization scripts in the scripts folder.
+Ensure your MongoDB instance is running (via Docker).
+
+**BigQuery Setup:**
+We have provided a script to automatically initialize the BigQuery datasets and ingest the global mineral data from Kaggle.
+1. Ensure your `backend/.env` file has the correct `GCP_PROJECT_ID` and `BQ_DATASET_ID` set.
+2. Run the ingestion script from the backend directory:
+   ```bash
+   cd backend
+   npx ts-node scripts/ingest_kaggle_data.ts
+   ```
+   This will create the dataset (if missing), the table with the correct schema, and populate it with ~300k records.
+
+**Vector Store:**
+The `geological_knowledge` table for RAG will be automatically created upon the first document upload via the Knowledge Base API.
 
 ## Testing the Loop
 

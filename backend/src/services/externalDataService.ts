@@ -13,7 +13,7 @@ export class ExternalDataService {
   static async getNearestDeposits(lat: number, lon: number, limit: number = 10): Promise<any[]> {
     try {
       const query = `
-        SELECT site_name, mineral_type, grade, unit, source,
+        SELECT site_name, mineral_type, grade, unit, source, metadata,
                ST_DISTANCE(geom, ST_GEOGPOINT(${lon}, ${lat})) as distance_meters
         FROM \`${datasetId}.${tableId}\`
         ORDER BY distance_meters ASC

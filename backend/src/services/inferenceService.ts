@@ -122,7 +122,12 @@ export class InferenceService {
         Context:
         - Location: ${project.location}
         - Surface: NDVI=${ndvi.toFixed(2)}, Thermal=${thermal.toFixed(2)}C, SWIR_Ratio=${swir.toFixed(2)}
-        - Nearby Deposits: ${JSON.stringify(nearestData.map(d => ({ n: d.site_name, g: d.grade })))}
+        - Nearby Deposits: ${JSON.stringify(nearestData.map(d => ({ 
+            name: d.site_name, 
+            status: d.metadata?.dev_stat || 'Unknown', 
+            type: d.metadata?.dep_type || 'Unknown',
+            grade_info: d.grade ? `${d.grade} ${d.unit}` : 'Grade data unavailable (Use status/type as proxy)'
+          })))}
         - Geological Reports: ${JSON.stringify(ragSnippets.map(r => r.content.substring(0, 150)))}
         
         Grid: ${voxels.length} voxels.
@@ -163,7 +168,7 @@ export class InferenceService {
         nearestDeposits: nearestData.map(d => ({
           name: d.site_name,
           distance: `${d.distance_meters?.toFixed(0)}m`,
-          grade: `${d.grade} ${d.unit}`,
+          grade: d.grade ? `${d.grade} ${d.unit}` : (d.metadata?.dev_stat || 'Qualitative'),
           source: d.source
         })),
         surfaceFeatures: { ndvi, thermal, swir }
