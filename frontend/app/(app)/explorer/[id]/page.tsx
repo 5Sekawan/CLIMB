@@ -64,6 +64,7 @@ function ExplorerStudio({
 }) {
   const defaultMineral = project.mineralLayers[0]?.id ?? "Au";
   const [selectedMineral, setSelectedMineral] = useState(defaultMineral);
+  const [activeLayerId, setActiveLayerId] = useState("satellite");
   const [depthValue, setDepthValue] = useState(25);
   const [opacityValue, setOpacityValue] = useState(0.75);
 
@@ -106,6 +107,8 @@ function ExplorerStudio({
           project={project}
           selectedMineral={selectedMineral}
           onMineralChange={setSelectedMineral}
+          activeLayerId={activeLayerId}
+          onLayerChange={setActiveLayerId}
           depthValue={depthValue}
           onDepthChange={setDepthValue}
           opacityValue={opacityValue}
@@ -117,6 +120,7 @@ function ExplorerStudio({
         <div className="relative mx-2 flex-1 overflow-hidden rounded-lg border border-border">
           <MapCanvas
             selectedMineral={selectedMineral}
+            activeLayerId={activeLayerId}
             projectName={project.name}
             center={project.center}
             projectId={project.id}

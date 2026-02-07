@@ -12,6 +12,7 @@ import { useProjectVoxels } from "@/hooks/use-projects";
 interface MapCanvasProps {
   className?: string;
   selectedMineral: string;
+  activeLayerId: string;
   projectName: string;
   center: string;
   projectId?: string;
@@ -19,7 +20,7 @@ interface MapCanvasProps {
 }
 
 // --- Overlay Helper Component ---
-function DeckGLOverlay({ layers, selectedMineral }: { layers: any[], selectedMineral: string }) {
+function DeckGLOverlay({ layers, selectedMineral, visible }: { layers: any[], selectedMineral: string, visible: boolean }) {
   const map = useMap();
   
   // Initialize overlay
@@ -36,8 +37,13 @@ function DeckGLOverlay({ layers, selectedMineral }: { layers: any[], selectedMin
     };
   }, [map, overlay]);
 
-  // Update props whenever layers or selectedMineral changes
+  // Update props whenever layers, selectedMineral, or visibility changes
   useEffect(() => {
+    if (!visible) {
+      overlay.setProps({ layers: [], getTooltip: null });
+      return;
+    }
+
     overlay.setProps({
       layers,
       getTooltip: ({object}: any) => {
@@ -63,16 +69,10 @@ function DeckGLOverlay({ layers, selectedMineral }: { layers: any[], selectedMin
             }
           };
         }
-        // AOI Tooltip (Optional)
-        if (object.properties && object.properties.name) {
-           return {
-             text: object.properties.name
-           };
-        }
         return null;
       }
     });
-  }, [overlay, layers, selectedMineral]);
+  }, [overlay, layers, selectedMineral, visible]);
 
   return null;
 }
@@ -81,6 +81,7 @@ function DeckGLOverlay({ layers, selectedMineral }: { layers: any[], selectedMin
 export function MapCanvas({
   className,
   selectedMineral,
+  activeLayerId,
   projectName,
   center,
   projectId,
@@ -105,7 +106,7 @@ export function MapCanvas({
   const layers = useMemo(() => {
     const currentLayers: any[] = [];
 
-    // Layer 1: AOI Polygon
+    // Layer 1: AOI Polygon (Visible in both modes for context)
     if (aoi) {
       currentLayers.push(
         new GeoJsonLayer({
@@ -115,36 +116,33 @@ export function MapCanvas({
           filled: true,
           lineWidthMinPixels: 2,
           getLineColor: [16, 185, 129], // climb-mint
-          getFillColor: [16, 185, 129, 40], // transparent mint
+          getFillColor: activeLayerId === 'voxel' ? [16, 185, 129, 20] : [16, 185, 129, 40],
         })
       );
     }
 
-    // Layer 2: 3D Voxels
-    if (voxels && voxels.length > 0) {
+    // Layer 2: 3D Voxels (Only if voxel mode is active)
+    if (activeLayerId === 'voxel' && voxels && voxels.length > 0) {
       currentLayers.push(
         new PointCloudLayer({
           id: 'voxel-layer',
           data: voxels,
           pickable: true,
-          // Exaggerate Z to make it visible against satellite terrain/flat map
           getPosition: (d: any) => [d.x, d.y, d.z * 5], 
           getNormal: [0, 1, 0],
           getColor: (d: any) => {
             const grade = selectedMineral === 'Au' ? d.au_grade : d.cu_grade;
-            // Simple heatmap: Blue (low) -> Green -> Red (high)
-            // Normalize 0-5 g/t
             const n = Math.min(Math.max(grade || 0, 0), 5) / 5;
             return [255 * n, 255 * (1 - Math.abs(0.5 - n) * 2), 255 * (1 - n)];
           },
-          pointSize: 10, // Larger points for voxel block effect
+          pointSize: 10,
           opacity: 0.8
         })
       );
     }
 
     return currentLayers;
-  }, [voxels, selectedMineral, aoi]);
+  }, [voxels, selectedMineral, aoi, activeLayerId]);
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden bg-slate-950", className)}>
@@ -152,22 +150,25 @@ export function MapCanvas({
         defaultCenter={mapCenter}
         defaultZoom={16}
         center={mapCenter}
-        mapId="climb-map-satellite"
+        mapId={activeLayerId === 'satellite' ? "climb-map-satellite" : "climb-map-dark"}
         disableDefaultUI={true}
         gestureHandling={'greedy'}
         className="h-full w-full"
-        // Force Satellite View for realism
-        defaultMapTypeId={'satellite'}
-        tilt={45}
+        mapTypeId={activeLayerId === 'satellite' ? 'satellite' : 'roadmap'}
+        tilt={activeLayerId === 'voxel' ? 45 : 0}
         heading={0}
       >
-        <DeckGLOverlay layers={layers} selectedMineral={selectedMineral} />
+        <DeckGLOverlay 
+          layers={layers} 
+          selectedMineral={selectedMineral} 
+          visible={activeLayerId === 'voxel' || (activeLayerId === 'satellite' && !!aoi)} 
+        />
       </Map>
 
       {/* Overlays */}
       <div className="absolute top-3 right-3 rounded-md bg-black/50 px-3 py-1.5 backdrop-blur-sm pointer-events-none z-10">
-        <span className="text-xs font-semibold text-white/90">
-          {projectName} (Satellite View)
+        <span className="text-xs font-semibold text-white/90 uppercase tracking-wider">
+          {projectName} • {activeLayerId === 'satellite' ? 'Surface View' : 'Voxel Model'}
         </span>
       </div>
 
@@ -175,13 +176,15 @@ export function MapCanvas({
         {center}
       </div>
 
-      <VoxelLegend
-        mineralName={selectedMineral}
-        unit="g/t"
-        minValue={0.0}
-        maxValue={5.0}
-        className="absolute bottom-4 right-4 pointer-events-auto z-10"
-      />
+      {activeLayerId === 'voxel' && (
+        <VoxelLegend
+          mineralName={selectedMineral}
+          unit="g/t"
+          minValue={0.0}
+          maxValue={5.0}
+          className="absolute bottom-4 right-4 pointer-events-auto z-10 animate-fade-in-up"
+        />
+      )}
       
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm pointer-events-none z-20">

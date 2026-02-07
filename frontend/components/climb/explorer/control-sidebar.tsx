@@ -24,13 +24,15 @@ interface ControlSidebarProps {
   onDepthChange: (val: number) => void;
   opacityValue: number;
   onOpacityChange: (val: number) => void;
+  activeLayerId: string;
+  onLayerChange: (id: string) => void;
   className?: string;
 }
 
 const layers = [
   { id: "satellite", label: "Satellite Imagery", icon: SatelliteIcon },
   { id: "voxel", label: "Voxel Model", icon: VoxelIcon },
-  { id: "dem", label: "DEM Surface", icon: LayersIcon },
+  // { id: "dem", label: "DEM Surface", icon: LayersIcon },
 ];
 
 export function ControlSidebar({
@@ -41,14 +43,10 @@ export function ControlSidebar({
   onDepthChange,
   opacityValue,
   onOpacityChange,
+  activeLayerId,
+  onLayerChange,
   className,
 }: ControlSidebarProps) {
-  const [layerStates, setLayerStates] = useState<Record<string, boolean>>({
-    satellite: true,
-    voxel: true,
-    dem: false,
-  });
-
   const [sectionsOpen, setSectionsOpen] = useState<Record<string, boolean>>({
     meta: true,
     layers: true,
@@ -59,9 +57,6 @@ export function ControlSidebar({
 
   const toggleSection = (key: string) =>
     setSectionsOpen((p) => ({ ...p, [key]: !p[key] }));
-
-  const toggleLayer = (id: string) =>
-    setLayerStates((p) => ({ ...p, [id]: !p[id] }));
 
   return (
     <aside
@@ -113,15 +108,15 @@ export function ControlSidebar({
         <div className="flex flex-col gap-2">
           {layers.map((layer) => {
             const Icon = layer.icon;
-            const isOn = layerStates[layer.id];
+            const isActive = activeLayerId === layer.id;
             return (
               <button
                 key={layer.id}
-                onClick={() => toggleLayer(layer.id)}
+                onClick={() => onLayerChange(layer.id)}
                 className={cn(
                   "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-climb-fast",
-                  isOn
-                    ? "bg-climb-mint-subtle text-foreground"
+                  isActive
+                    ? "bg-climb-mint-subtle text-foreground shadow-climb-1"
                     : "text-muted-foreground hover:bg-muted",
                 )}
               >
@@ -129,12 +124,10 @@ export function ControlSidebar({
                 <span className="flex-1 text-left text-xs font-medium">
                   {layer.label}
                 </span>
-                <EyeIcon
-                  className={cn(
-                    "h-3.5 w-3.5 transition-opacity",
-                    isOn ? "opacity-100" : "opacity-30",
-                  )}
-                />
+                <div className={cn(
+                  "h-2 w-2 rounded-full",
+                  isActive ? "bg-climb-mint animate-pulse" : "bg-border"
+                )} />
               </button>
             );
           })}
