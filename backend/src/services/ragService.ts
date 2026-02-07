@@ -73,10 +73,13 @@ export class RAGService {
       const embeddingString = `[${embedding.join(',')}]`;
 
       // Standard SQL Cosine Distance (1 - Cosine Similarity)
-      // Works in all regions/editions where VECTOR_DISTANCE might be missing
+      // Fixed: Use JSON_EXTRACT_ARRAY to correctly parse the embedding string
       const query = `
         WITH input_vector AS (
-          SELECT CAST('${embeddingString}' AS ARRAY<FLOAT64>) as vec
+          SELECT ARRAY(
+            SELECT CAST(json_element AS FLOAT64) 
+            FROM UNNEST(JSON_EXTRACT_ARRAY('${embeddingString}')) AS json_element
+          ) as vec
         )
         SELECT content, metadata,
           (

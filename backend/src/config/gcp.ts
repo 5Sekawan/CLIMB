@@ -25,7 +25,7 @@ export const storage = new Storage({
 
 export const vertexAI = new VertexAI({
   project: projectId,
-  location: location,
+  location: 'us-central1', // Specific location for Generative AI availability
 });
 
 console.log(`[GCP] Initialized clients for Project: ${projectId}`);
