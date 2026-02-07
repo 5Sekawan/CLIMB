@@ -4,6 +4,15 @@ import { cn } from "@/lib/utils";
 import { ClimbLogo, SettingsIcon } from "./icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/context/auth-context";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 const navLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/explorer", label: "Explorer", matchPrefix: "/explorer" },
@@ -12,6 +21,7 @@ const navLinks = [
 
 export function TopNav() {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 flex h-14 w-full items-center border-b border-border bg-card/80 backdrop-blur-md">
@@ -60,10 +70,28 @@ export function TopNav() {
           <SettingsIcon className="h-4 w-4" />
         </Link>
 
-        {/* Avatar */}
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
-          KS
-        </div>
+        {/* User Menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold outline-none ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+              {user?.name ? user.name.substring(0, 2).toUpperCase() : "KS"}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex flex-col space-y-1">
+                <p className="text-sm font-medium leading-none">{user?.name || "User"}</p>
+                <p className="text-xs leading-none text-muted-foreground">
+                  {user?.email || "user@example.com"}
+                </p>
+              </div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={logout} className="text-red-600 focus:text-red-600 cursor-pointer">
+              Log out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );
