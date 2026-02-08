@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from "react";
 import { use } from "react";
-import { MapCanvas } from "@/components/climb/explorer/map-canvas";
+import { SatelliteView } from "@/components/climb/explorer/satellite-view";
+import { VoxelView3D } from "@/components/climb/explorer/voxel-view-3d";
 import { FloatingTools } from "@/components/climb/explorer/floating-tools";
 import { ControlSidebar } from "@/components/climb/explorer/control-sidebar";
 import { IntelligencePanel } from "@/components/climb/explorer/intelligence-panel";
@@ -68,16 +69,15 @@ function ExplorerStudio({
   // Compute hasVoxels: true if inference completed and voxels exist
   const hasVoxels = useMemo(() => {
     if (!project) return false;
-    // Check if project status is 'completed' or if voxels array has items
     const projectStatus = (project as any).status;
     const hasVoxelData = voxels && Array.isArray(voxels) && voxels.length > 0;
     return projectStatus === 'completed' || hasVoxelData;
   }, [project, voxels]);
 
-  // State: Multi-select minerals (default to all minerals if voxels exist)
+  // State: Multi-select minerals (default to first mineral)
   const defaultMinerals = useMemo(() => {
     if (!project?.mineralLayers?.length) return ['Au'];
-    return project.mineralLayers.map(m => m.id);
+    return [project.mineralLayers[0].id]; // Start with first mineral selected
   }, [project?.mineralLayers]);
 
   const [selectedMinerals, setSelectedMinerals] = useState<string[]>(defaultMinerals);
@@ -87,7 +87,7 @@ function ExplorerStudio({
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
-      {/* Top bar: back button + project name, with vertical spacing matching the nav gap */}
+      {/* Top bar: back button + project name */}
       <div className="flex items-center gap-3 border-b border-border bg-card/60 px-4 py-2.5">
         <Link
           href="/explorer"
@@ -117,7 +117,7 @@ function ExplorerStudio({
         </div>
       </div>
 
-      {/* Main content with padding */}
+      {/* Main content */}
       <div className="flex flex-1 overflow-hidden p-2">
         {/* Left Control Sidebar */}
         <ControlSidebar
@@ -134,22 +134,30 @@ function ExplorerStudio({
           className="rounded-lg"
         />
 
-        {/* Main Map Area */}
+        {/* Main View Area - Conditional Rendering */}
         <div className="relative mx-2 flex-1 overflow-hidden rounded-lg border border-border">
-          <MapCanvas
-            selectedMinerals={selectedMinerals}
-            activeLayerId={activeLayerId}
-            projectName={project.name}
-            center={project.center}
-            projectId={project.id}
-            aoi={project.aoi}
-            hasVoxels={hasVoxels ?? false}
-            depthValue={depthValue}
-            opacityValue={opacityValue}
-          />
+          {activeLayerId === 'satellite' && (
+            <SatelliteView
+              projectName={project.name}
+              center={project.center}
+              aoi={project.aoi}
+            />
+          )}
 
-          {/* Floating Tool Dock */}
-          <FloatingTools className="absolute left-4 top-4" />
+          {activeLayerId === 'voxel' && (
+            <VoxelView3D
+              projectName={project.name}
+              projectId={project.id}
+              selectedMinerals={selectedMinerals}
+              depthValue={depthValue}
+              opacityValue={opacityValue}
+            />
+          )}
+
+          {/* Floating Tool Dock (only in satellite view) */}
+          {activeLayerId === 'satellite' && (
+            <FloatingTools className="absolute left-4 top-4" />
+          )}
         </div>
 
         {/* Right Intelligence Panel */}
