@@ -1,6 +1,6 @@
 import { BigQuery } from '@google-cloud/bigquery';
 import { Storage } from '@google-cloud/storage';
-import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -23,18 +23,54 @@ export const storage = new Storage({
   keyFilename: keyFilename,
 });
 
-export const vertexAI = new VertexAI({
-  project: projectId,
-  location: location,
-});
+// Initialize Google GenAI with API Key
+const geminiApiKey = process.env.GEMINI_API_KEY || '';
+if (!geminiApiKey) {
+  console.warn('[GenAI] Warning: GEMINI_API_KEY not set. LLM features will not work.');
+}
+
+export const genAI = new GoogleGenAI({ apiKey: geminiApiKey });
+
+// Model ID (default to gemini-2.0-flash for better performance/cost)
+const modelId = process.env.GEMINI_MODEL_ID || 'gemini-2.5-flash';
 
 console.log(`[GCP] Initialized clients for Project: ${projectId}`);
+console.log(`[GenAI] Using model: ${modelId}`);
 
-export const generativeModel = vertexAI.getGenerativeModel({
-  model: process.env.VERTEX_AI_MODEL_ID || 'gemini-1.5-pro',
-});
+/**
+ * Generate content using Google GenAI SDK
+ * This replaces the Vertex AI generativeModel.generateContent() calls
+ */
+export async function generateContent(prompt: string): Promise<string> {
+  try {
+    const response = await genAI.models.generateContent({
+      model: modelId,
+      contents: prompt,
+    });
 
-// Fix: Use getGenerativeModel directly for embeddings in newer SDK versions
-export const embeddingModel = vertexAI.getGenerativeModel({
-  model: 'text-embedding-004',
-});
+    return response.text || '';
+  } catch (error) {
+    console.error('[GenAI] Error generating content:', error);
+    throw error;
+  }
+}
+
+/**
+ * Legacy export for backward compatibility
+ * Wraps the new SDK in a similar interface to Vertex AI
+ */
+export const generativeModel = {
+  generateContent: async (prompt: string) => {
+    const text = await generateContent(prompt);
+    return {
+      response: {
+        candidates: [{
+          content: {
+            parts: [{ text }]
+          }
+        }],
+        text: () => text
+      }
+    };
+  }
+};
