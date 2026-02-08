@@ -42,6 +42,11 @@ export interface ICachedContext {
     thermal: number;
     swir: number;
   };
+  processingStats?: {
+    totalVoxels: number;
+    batchCount: number;
+    voxelsPerBatch: number;
+  };
 }
 
 export interface IEconomicParams {
@@ -62,7 +67,7 @@ export interface IProject extends Document {
   description?: string;
   location: string; // e.g., "East Kalimantan"
   status: 'active' | 'finished' | 'inactive' | 'processing'; // Added processing for internal state
-  
+
   // --- Geospatial ---
   aoi: IAOI;
   center: string; // "lat, lng" for UI display
@@ -70,7 +75,7 @@ export interface IProject extends Document {
   elevation: string; // e.g. "100-200m ASL"
 
   // --- Configuration ---
-  minerals: string[]; 
+  minerals: string[];
   mineralMetadata: Map<string, IMineralMetadata>;
   documents: mongoose.Types.ObjectId[]; // References to Knowledge Base
 
@@ -114,7 +119,7 @@ const AOISchema = new Schema({
     default: 'Polygon'
   },
   coordinates: {
-    type: [[[Number]]], 
+    type: [[[Number]]],
     required: true
   }
 }, { _id: false });
@@ -133,15 +138,15 @@ const VoxelSchema = new Schema({
 }, { _id: false });
 
 const ProjectSchema = new Schema<IProject>({
-  name: { 
-    type: String, 
+  name: {
+    type: String,
     required: [true, 'Project name is required'],
     trim: true,
     maxlength: 100
   },
   description: { type: String, maxlength: 500 },
   location: { type: String, default: 'Unknown Location' },
-  
+
   status: {
     type: String,
     enum: ['active', 'finished', 'inactive', 'processing'],
@@ -149,10 +154,10 @@ const ProjectSchema = new Schema<IProject>({
   },
 
   // Geospatial
-  aoi: { 
-    type: AOISchema, 
+  aoi: {
+    type: AOISchema,
     required: true,
-    index: '2dsphere' 
+    index: '2dsphere'
   },
   center: { type: String },
   area: { type: Number, default: 0 },
@@ -195,6 +200,11 @@ const ProjectSchema = new Schema<IProject>({
       ndvi: Number,
       thermal: Number,
       swir: Number
+    },
+    processingStats: {
+      totalVoxels: Number,
+      batchCount: Number,
+      voxelsPerBatch: Number
     }
   },
 
@@ -221,7 +231,7 @@ const ProjectSchema = new Schema<IProject>({
 
   inferenceResults: {
     type: [VoxelSchema],
-    select: false 
+    select: false
   }
 
 }, {

@@ -19,17 +19,17 @@ export class RAGService {
       const auth = new GoogleAuth({
         scopes: 'https://www.googleapis.com/auth/cloud-platform'
       });
-      
+
       const client = await auth.getClient();
       const accessToken = await client.getAccessToken();
-      
+
       // Use the configured Project ID (Billing Project) for the API call
       const projectId = process.env.GCP_PROJECT_ID;
       const location = process.env.GCP_LOCATION || 'us-central1';
       const modelId = 'text-embedding-004';
-      
+
       const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelId}:predict`;
-      
+
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -51,11 +51,11 @@ export class RAGService {
       // Parse response structure for text-embedding-004
       // Response format: { predictions: [ { embeddings: { values: [...] } } ] }
       const values = data.predictions?.[0]?.embeddings?.values;
-      
+
       if (!values) {
         throw new Error('Invalid embedding response format');
       }
-      
+
       return values;
 
     } catch (error) {
@@ -66,22 +66,36 @@ export class RAGService {
 
   /**
    * Searches the BigQuery Vector Store for relevant geological snippets
+   * Uses VECTOR_SEARCH with brute force mode (no vector index required)
    */
   static async searchKnowledge(queryText: string, limit: number = 5): Promise<any[]> {
     try {
       const embedding = await this.generateEmbedding(queryText);
-      const embeddingString = `[${embedding.join(',')}]`;
 
-      // BigQuery Vector Search Query (Fixed: Added Table ID and Data Project ID)
+      // BigQuery VECTOR_SEARCH with brute force mode
+      // This doesn't require a pre-built vector index
       const query = `
-        SELECT content, metadata, 
-               VECTOR_DISTANCE(embedding, CAST('${embeddingString}' AS ARRAY<FLOAT64>), 'COSINE') as distance
-        FROM \`${dataProjectId}.${datasetId}.${tableId}\`
-        ORDER BY distance ASC
-        LIMIT ${limit}
+        SELECT base.content, base.metadata, distance
+        FROM VECTOR_SEARCH(
+          TABLE \`${dataProjectId}.${datasetId}.${tableId}\`,
+          'embedding',
+          (SELECT @query_embedding AS embedding_query),
+          'embedding_query',
+          top_k => @limit,
+          distance_type => 'COSINE',
+          options => '{"use_brute_force": true}'
+        )
       `;
 
-      const [rows] = await bigquery.query({ query });
+      const options = {
+        query,
+        params: {
+          query_embedding: embedding,
+          limit: limit
+        }
+      };
+
+      const [rows] = await bigquery.query(options);
       Logger.info(`[RAG] Search returned ${rows.length} results for query: "${queryText.substring(0, 50)}..."`);
       return rows;
     } catch (error) {
@@ -104,7 +118,7 @@ export class RAGService {
       const chunkSize = 1000;
       const overlap = 100;
       const chunks: string[] = [];
-      
+
       for (let i = 0; i < fullText.length; i += (chunkSize - overlap)) {
         chunks.push(fullText.substring(i, i + chunkSize));
       }
@@ -117,13 +131,13 @@ export class RAGService {
         if (chunk.trim().length < 50) continue;
 
         const embedding = await this.generateEmbedding(chunk);
-        
+
         rowsToInsert.push({
           id: `${documentId}-${index}`,
           content: chunk,
           metadata: JSON.stringify({ ...metadata, chunkIndex: index, documentId }),
           // If location is provided, use it (WKT format), else null
-          location: location ? bigquery.geography(location) : null, 
+          location: location ? bigquery.geography(location) : null,
           embedding: embedding
         });
 
@@ -138,9 +152,9 @@ export class RAGService {
           .dataset(datasetId!, { projectId: dataProjectId })
           .table(tableId!)
           .insert(rowsToInsert);
-          
+
         Logger.job('RAGIngestion', 'DONE', `Successfully ingested ${rowsToInsert.length} chunks into BigQuery.`);
-        
+
         // Update Status in MongoDB
         await DocumentModel.findByIdAndUpdate(documentId, {
           status: 'ready',

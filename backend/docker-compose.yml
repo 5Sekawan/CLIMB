@@ -19,6 +19,12 @@ services:
       dockerfile: Dockerfile
     container_name: climb-backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 32G
+        reservations:
+          memory: 4G
     expose:
       - "8080"
     env_file:
