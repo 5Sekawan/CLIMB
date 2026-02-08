@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { use } from "react";
 import { MapCanvas } from "@/components/climb/explorer/map-canvas";
 import { FloatingTools } from "@/components/climb/explorer/floating-tools";
 import { ControlSidebar } from "@/components/climb/explorer/control-sidebar";
 import { IntelligencePanel } from "@/components/climb/explorer/intelligence-panel";
 import { OperationalCockpit } from "@/components/climb/explorer/operational-cockpit";
-import { useProjectDetail } from "@/hooks/use-projects";
+import { useProjectDetail, useProjectVoxels } from "@/hooks/use-projects";
 import { MountainIcon, ArrowLeftIcon, RecycleIcon } from "@/components/climb/icons";
 import { CButton } from "@/components/climb/ui";
 import Link from "next/link";
@@ -60,10 +60,27 @@ export default function ExplorerPage({
 function ExplorerStudio({
   project,
 }: {
-  project: NonNullable<ReturnType<typeof getProjectDetail>>;
+  project: NonNullable<ReturnType<typeof useProjectDetail>['data']>;
 }) {
-  const defaultMineral = project.mineralLayers[0]?.id ?? "Au";
-  const [selectedMineral, setSelectedMineral] = useState(defaultMineral);
+  // Fetch voxels to determine if they exist
+  const { data: voxels } = useProjectVoxels(project?.id || "");
+
+  // Compute hasVoxels: true if inference completed and voxels exist
+  const hasVoxels = useMemo(() => {
+    if (!project) return false;
+    // Check if project status is 'completed' or if voxels array has items
+    const projectStatus = (project as any).status;
+    const hasVoxelData = voxels && Array.isArray(voxels) && voxels.length > 0;
+    return projectStatus === 'completed' || hasVoxelData;
+  }, [project, voxels]);
+
+  // State: Multi-select minerals (default to all minerals if voxels exist)
+  const defaultMinerals = useMemo(() => {
+    if (!project?.mineralLayers?.length) return ['Au'];
+    return project.mineralLayers.map(m => m.id);
+  }, [project?.mineralLayers]);
+
+  const [selectedMinerals, setSelectedMinerals] = useState<string[]>(defaultMinerals);
   const [activeLayerId, setActiveLayerId] = useState("satellite");
   const [depthValue, setDepthValue] = useState(25);
   const [opacityValue, setOpacityValue] = useState(0.75);
@@ -105,26 +122,30 @@ function ExplorerStudio({
         {/* Left Control Sidebar */}
         <ControlSidebar
           project={project}
-          selectedMineral={selectedMineral}
-          onMineralChange={setSelectedMineral}
+          selectedMinerals={selectedMinerals}
+          onMineralsChange={setSelectedMinerals}
           activeLayerId={activeLayerId}
           onLayerChange={setActiveLayerId}
           depthValue={depthValue}
           onDepthChange={setDepthValue}
           opacityValue={opacityValue}
           onOpacityChange={setOpacityValue}
+          hasVoxels={hasVoxels ?? false}
           className="rounded-lg"
         />
 
         {/* Main Map Area */}
         <div className="relative mx-2 flex-1 overflow-hidden rounded-lg border border-border">
           <MapCanvas
-            selectedMineral={selectedMineral}
+            selectedMinerals={selectedMinerals}
             activeLayerId={activeLayerId}
             projectName={project.name}
             center={project.center}
             projectId={project.id}
             aoi={project.aoi}
+            hasVoxels={hasVoxels ?? false}
+            depthValue={depthValue}
+            opacityValue={opacityValue}
           />
 
           {/* Floating Tool Dock */}

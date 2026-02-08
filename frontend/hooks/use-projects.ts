@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { ProjectDetail, ProjectSummary } from '@/lib/mock-data';
+import type { ProjectDetail, ProjectSummary, DriftStatus, ProjectStatus } from '@/lib/mock-data';
 import { formatDistanceToNow } from 'date-fns';
 
 // --- Types (Temporary, mirroring backend response) ---
@@ -13,6 +13,45 @@ export interface ProjectResponse {
     limit: number;
   };
 }
+
+// --- Mineral Color Palette ---
+const MINERAL_COLORS: Record<string, string> = {
+  Au: "bg-amber-400",
+  Cu: "bg-orange-500",
+  Ag: "bg-slate-400",
+  Ni: "bg-teal-500",
+  Co: "bg-blue-500",
+  Fe: "bg-red-500",
+  Mn: "bg-purple-500",
+  Sn: "bg-gray-400",
+  Mo: "bg-violet-500",
+  Zn: "bg-zinc-400",
+  Cr: "bg-emerald-600",
+  Ta: "bg-indigo-500",
+};
+
+const MINERAL_LABELS: Record<string, string> = {
+  Au: "Gold (Au)",
+  Cu: "Copper (Cu)",
+  Ag: "Silver (Ag)",
+  Ni: "Nickel (Ni)",
+  Co: "Cobalt (Co)",
+  Fe: "Iron (Fe)",
+  Mn: "Manganese (Mn)",
+  Sn: "Tin (Sn)",
+  Mo: "Molybdenum (Mo)",
+  Zn: "Zinc (Zn)",
+  Cr: "Chromium (Cr)",
+  Ta: "Tantalum (Ta)",
+};
+
+const getMineralColor = (mineral: string): string => {
+  return MINERAL_COLORS[mineral] || "bg-gray-400";
+};
+
+const getMineralLabel = (mineral: string): string => {
+  return MINERAL_LABELS[mineral] || `${mineral} Mineral`;
+};
 
 // --- Helpers ---
 const formatTonnage = (val?: number) => {
@@ -31,37 +70,15 @@ const formatTime = (date?: string) => {
   }
 };
 
-export interface ProjectSummary {
-  id: string;
-  name: string;
-  location: string;
-  minerals: string[];
-  driftStatus: DriftStatus;
-  lastInference: string;
-  estimatedTonnage: string;
-  confidence: number;
-  status: ProjectStatus;
-  // Reconciliation specific props
-  reconciliationStats?: {
-    avgVariance: number;
-    blocksAnalyzed: number;
-    blocksDrifting: number;
-    blocksStable: number;
-    modelBias: string;
-    lastReconciliation: string;
-  };
-}
-
-// ... existing code ...
-
 // --- Hooks ---
+
 
 export function useProjects(params?: { page?: number; status?: string; search?: string }) {
   return useQuery({
     queryKey: ['projects', params],
     queryFn: async () => {
       const { data } = await api.get<ProjectResponse>('/projects', { params });
-      
+
       // Transform Backend Data to Frontend Interface (ProjectSummary)
       const transformedProjects: ProjectSummary[] = data.data.map((p: any) => ({
         id: p._id || p.id,
@@ -106,8 +123,8 @@ export function useProjectDetail(id: string) {
           const meta = project.mineralMetadata?.[m];
           return {
             id: m,
-            label: meta?.label || `${m} Mineral`,
-            color: meta?.color || "bg-gray-400" // Default color
+            label: meta?.label || getMineralLabel(m),
+            color: meta?.color || getMineralColor(m)
           };
         }),
         // Ensure defaults for nested objects to prevent UI crashes
@@ -154,7 +171,7 @@ export function useProjectVoxels(id: string) {
 
 export function useCreateProject() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (payload: { name: string; pins: { lat: number; lng: number }[]; selectedDocuments?: string[] }) => {
       const { data } = await api.post('/projects', payload);
