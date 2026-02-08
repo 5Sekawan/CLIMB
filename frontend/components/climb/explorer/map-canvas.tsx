@@ -206,11 +206,11 @@ export function MapCanvas({
         defaultCenter={mapCenter}
         defaultZoom={16}
         center={mapCenter}
-        mapId={activeLayerId === 'satellite' ? "climb-map-satellite" : "climb-map-dark"}
+        mapId="climb-map-satellite"
         disableDefaultUI={true}
         gestureHandling={'greedy'}
         className="h-full w-full"
-        mapTypeId={activeLayerId === 'satellite' ? 'satellite' : 'roadmap'}
+        mapTypeId="satellite"
         tilt={activeLayerId === 'voxel' ? 45 : 0}
         heading={0}
       >
