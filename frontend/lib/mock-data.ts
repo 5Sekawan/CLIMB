@@ -4,7 +4,7 @@
 // Each function here mirrors a future API endpoint / server action.
 // ─────────────────────────────────────────────────────────────
 
-export type ProjectStatus = "active" | "finished" | "inactive";
+export type ProjectStatus = "active" | "finished" | "inactive" | "processing";
 export type DriftStatus = "stable" | "drifting";
 
 // ─── Project (Dashboard level) ────────────────────────────────
@@ -26,6 +26,7 @@ export interface ProjectDetail extends ProjectSummary {
   area: string;         // km²
   elevation: string;    // meters ASL
   lastSyncedAt: string;
+  lastInferenceAt?: string; // ISO string from backend
   mineralLayers: MineralLayer[];
   nearestDeposits: NearestDeposit[];
   ragContext: RagContext;
@@ -49,6 +50,13 @@ export interface ProjectDetail extends ProjectSummary {
         swir: number;
         interpretation: string;
       };
+    };
+    aiSummary?: {
+      text: string;
+      gradeRange: string;
+      depthRange: string;
+      confidence: number;
+      generatedAt?: string;
     };
     ragSummary?: { short: string; long: string; sourceRef: string };
     nearestDeposits?: Array<{ name: string; distance: string; grade: string; source: string }>;

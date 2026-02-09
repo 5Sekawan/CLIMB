@@ -40,6 +40,13 @@ export interface ICachedContext {
       interpretation: string;
     };
   };
+  aiSummary?: {
+    text: string;
+    gradeRange: string;
+    depthRange: string;
+    confidence: number;
+    generatedAt?: Date;
+  };
   ragSummary?: {
     short: string;
     long: string;
@@ -101,6 +108,15 @@ export interface IProject extends Document {
 
   // --- Cached Context (Persisted from Inference) ---
   cachedContext?: ICachedContext;
+
+  // --- Inference Phase Tracking ---
+  inferencePhase?: {
+    current: 'idle' | 'recon' | 'context' | 'voxelization' | 'processing' | 'merging' | 'summary' | 'complete';
+    progress: number;
+    completedSteps: string[];
+    startedAt?: Date;
+    lastUpdatedAt?: Date;
+  };
 
   // --- Economic Defaults ---
   economicParams: IEconomicParams;
@@ -211,6 +227,13 @@ const ProjectSchema = new Schema<IProject>({
         interpretation: String
       }
     },
+    aiSummary: {
+      text: String,
+      gradeRange: String,
+      depthRange: String,
+      confidence: Number,
+      generatedAt: Date
+    },
     ragSummary: {
       short: String,
       long: String,
@@ -233,6 +256,19 @@ const ProjectSchema = new Schema<IProject>({
       batchCount: Number,
       voxelsPerBatch: Number
     }
+  },
+
+  // Inference Phase Tracking
+  inferencePhase: {
+    current: {
+      type: String,
+      enum: ['idle', 'recon', 'context', 'voxelization', 'processing', 'merging', 'summary', 'complete'],
+      default: 'idle'
+    },
+    progress: { type: Number, default: 0 },
+    completedSteps: [String],
+    startedAt: Date,
+    lastUpdatedAt: Date
   },
 
   // Economics

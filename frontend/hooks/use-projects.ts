@@ -215,12 +215,21 @@ export function useInferenceStatus(projectId: string, enabled: boolean) {
   return useQuery({
     queryKey: ['project-status', projectId],
     queryFn: async () => {
-      const { data } = await api.get<{ success: boolean; status: string; lastInferenceAt?: string }>(`/projects/${projectId}/status`);
+      const { data } = await api.get<{
+        success: boolean;
+        status: string;
+        lastInferenceAt?: string;
+        inferencePhase?: {
+          current: string;
+          progress: number;
+          completedSteps: string[];
+        }
+      }>(`/projects/${projectId}/status`);
       return data;
     },
     enabled: enabled && !!projectId,
     refetchInterval: (query) => {
-      return query.state.data?.status === 'processing' ? 3000 : false;
+      return query.state.data?.status === 'processing' ? 2000 : false;
     },
   });
 }
