@@ -111,7 +111,7 @@ export function IntelligencePanel({ project, className }: IntelligencePanelProps
   const buttonLabel = isProcessing
     ? "Processing..."
     : hasInferenceData
-      ? "Re-run Inference"
+      ? "Run AI Inference"
       : "Run AI Inference";
 
   // ─── Dynamic Card Visibility ───────────────────────
