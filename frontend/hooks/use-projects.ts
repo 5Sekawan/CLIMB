@@ -148,6 +148,8 @@ export function useProjectDetail(id: string) {
         baseGradeRange: "-", // Placeholder
         depthRange: "0-50m", // Placeholder
         aoi: project.aoi, // Pass GeoJSON
+        // Pass through cachedContext for advanced UI features
+        cachedContext: project.cachedContext,
       };
 
       return transformedProject;

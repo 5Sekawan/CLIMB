@@ -26,6 +26,19 @@ export interface IMineralMetadata {
 }
 
 export interface ICachedContext {
+  mineralRecon?: {
+    predictedMinerals: string[];
+    reasoning: string;
+    nearestOccurrences: string[];
+    confidence: number;
+    reconAt: Date;
+    surfaceAnalysis?: {
+      ndvi: number;
+      thermal: number;
+      swir: number;
+      interpretation: string;
+    };
+  };
   ragSummary?: {
     short: string;
     long: string;

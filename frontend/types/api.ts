@@ -29,7 +29,7 @@ export interface IProject {
   description?: string;
   location: string;
   status: ProjectStatus;
-  
+
   // Geospatial
   aoi: {
     type: 'Polygon';
@@ -51,6 +51,19 @@ export interface IProject {
 
   // Cache
   cachedContext?: {
+    mineralRecon?: {
+      predictedMinerals: string[];
+      reasoning: string;
+      nearestOccurrences: string[];
+      confidence: number;
+      reconAt?: string;
+      surfaceAnalysis?: {
+        ndvi: number;
+        thermal: number;
+        swir: number;
+        interpretation: string;
+      };
+    };
     ragSummary?: {
       short: string;
       long: string;

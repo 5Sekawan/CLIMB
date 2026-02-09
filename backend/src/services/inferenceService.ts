@@ -8,6 +8,7 @@ import { Project } from '../models/Project';
 import * as turf from '@turf/turf';
 import { ActivityService } from './activityService';
 import { Logger } from '../utils/logger';
+import { MineralReconService } from './mineralReconService';
 
 // Configuration
 const PARALLEL_BATCH_CONCURRENCY = 20; // Max parallel Gemini calls
@@ -52,6 +53,7 @@ export class InferenceService {
       ]);
 
       // Build batch-specific prompt with shared context + local geospatial
+      const mineralGradeFormat = sharedContext.minerals.map(m => `"${m.toLowerCase()}_grade": number`).join(', ');
       const prompt = `
 System: You are an expert Geostatistician AI.
 Task: Estimate 3D mineral grade distribution for a specific sub-region.
@@ -78,7 +80,8 @@ Voxel IDs: ${voxels.slice(0, 10).map(v => v.id).join(', ')}${voxels.length > 10 
 Depth Range: 0-50m
 
 OUTPUT FORMAT:
-Return ONLY a JSON array: [{"id": "voxel_id", "au_grade": number, "cu_grade": number, "uncertainty": 0-1}]
+Return ONLY a JSON array with predictions for these minerals: ${sharedContext.minerals.join(', ')}
+[{"id": "voxel_id", ${mineralGradeFormat}, "uncertainty": 0-1}]
 Generate predictions for ALL ${voxels.length} voxel IDs.
 `;
 
@@ -129,13 +132,28 @@ Generate predictions for ALL ${voxels.length} voxel IDs.
       await ActivityService.log('inference', `Started inference pipeline for ${project.name}`, projectId, project.name);
 
       // =========================================
-      // PHASE 1: Gather SHARED Context (once)
+      // PHASE 0: Mineral Reconnaissance (NEW)
       // =========================================
       const polygon = project.aoi.coordinates[0];
       const geojson = { type: 'Polygon', coordinates: [polygon] };
       const centerPt = turf.center(geojson as any);
       const [lon, lat] = centerPt.geometry.coordinates;
 
+      Logger.info(`[Pipeline] Phase 0: Running mineral reconnaissance for ${project.name}`);
+      await ActivityService.log('inference', `Phase 0: Mineral reconnaissance started`, projectId, project.name);
+
+      const reconResult = await MineralReconService.predictMinerals(lat, lon, project.name, project.location, polygon as number[][]);
+
+      // Update project with predicted minerals
+      project.minerals = reconResult.minerals;
+      project.mineralMetadata = MineralReconService.generateMineralMetadata(reconResult.minerals);
+
+      Logger.info(`[Pipeline] Mineral recon complete: ${reconResult.minerals.join(', ')} (confidence: ${reconResult.confidence})`);
+      await ActivityService.log('inference', `Predicted minerals: ${reconResult.minerals.join(', ')}`, projectId, project.name);
+
+      // =========================================
+      // PHASE 1: Gather SHARED Context (once)
+      // =========================================
       Logger.info(`[Pipeline] Phase 1: Gathering shared context for ${project.name}`);
 
       const [ragSnippets, nearestData] = await Promise.all([
@@ -148,7 +166,7 @@ Generate predictions for ALL ${voxels.length} voxel IDs.
         nearestDeposits: nearestData,
         projectName: project.name,
         location: project.location,
-        minerals: project.minerals
+        minerals: reconResult.minerals  // Use dynamically predicted minerals
       };
 
       Logger.info(`[Pipeline] Shared context loaded: ${ragSnippets.length} RAG snippets, ${nearestData.length} deposits`);
@@ -202,6 +220,14 @@ Generate predictions for ALL ${voxels.length} voxel IDs.
       // =========================================
       project.inferenceResults = mergedVoxels;
       project.cachedContext = {
+        mineralRecon: {
+          predictedMinerals: reconResult.minerals,
+          reasoning: reconResult.reasoning,
+          nearestOccurrences: reconResult.nearestOccurrences,
+          confidence: reconResult.confidence,
+          reconAt: new Date(),
+          surfaceAnalysis: reconResult.surfaceAnalysis
+        },
         ragSummary: {
           short: `AI analyzed ${batches.length} sub-regions with ${avgThermal > 2.0 ? 'elevated thermal signatures' : 'moderate surface indicators'}.`,
           long: `Parallel analysis of ${voxels.length} voxels across ${batches.length} batches. ${ragSnippets.length} geological reports and proximity to ${nearestData[0]?.site_name || 'historical sites'} informed predictions.`,

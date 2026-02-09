@@ -14,6 +14,7 @@ import {
   ChevronDownIcon,
   MapPinIcon,
   RotateIcon,
+  LayersIcon,
 } from "@/components/climb/icons";
 import { useState } from "react";
 import type { ProjectDetail } from "@/lib/mock-data";
@@ -30,10 +31,10 @@ export function IntelligencePanel({
 }: IntelligencePanelProps) {
   const [ragExpanded, setRagExpanded] = useState(false);
   const startInference = useStartInference();
-  
+
   // Polling status if the project is currently processing or after a manual start
   const { data: statusData } = useInferenceStatus(
-    project.id, 
+    project.id,
     project.status === 'processing' || startInference.isPending
   );
 
@@ -64,10 +65,10 @@ export function IntelligencePanel({
 
       {/* Action Area */}
       <div className="border-b border-border p-4 bg-muted/20">
-        <CButton 
-          variant="solid" 
-          size="sm" 
-          className="w-full" 
+        <CButton
+          variant="solid"
+          size="sm"
+          className="w-full"
           onClick={handleStartInference}
           disabled={isProcessing}
         >
@@ -87,6 +88,38 @@ export function IntelligencePanel({
           Trigger hybrid synthesis of GEE, RAG, and BigQuery data to generate 3D block model.
         </p>
       </div>
+
+      {/* Mineral Reconnaissance (NEW) */}
+      {project.cachedContext?.mineralRecon && (
+        <div className="border-b border-border p-4">
+          <InsightCard
+            icon={<LayersIcon className="h-4 w-4" />}
+            title="Mineral Reconnaissance"
+          >
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-1.5">
+                {project.cachedContext.mineralRecon.predictedMinerals.map((mineral: string) => (
+                  <span
+                    key={mineral}
+                    className="rounded-md bg-climb-mint/20 px-2 py-0.5 font-mono text-[10px] font-bold text-climb-mint"
+                  >
+                    {mineral}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {project.cachedContext.mineralRecon.reasoning}
+              </p>
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span>Confidence:</span>
+                <span className="font-mono font-semibold text-foreground">
+                  {(project.cachedContext.mineralRecon.confidence * 100).toFixed(0)}%
+                </span>
+              </div>
+            </div>
+          </InsightCard>
+        </div>
+      )}
 
       {/* AI Reasoning Card (RAG) -- dynamic from project.ragContext */}
       <div className="border-b border-border p-4">
@@ -198,6 +231,7 @@ export function IntelligencePanel({
         </h3>
         <InferenceLoading
           stages={[
+            { label: "Mineral Reconnaissance...", done: true },
             { label: "Analyzing Satellite Imagery...", done: true },
             { label: "Querying Geological Knowledge...", done: true },
             { label: "Enriching with Kaggle Data...", done: true },

@@ -36,6 +36,24 @@ export interface ProjectDetail extends ProjectSummary {
   baseTonnage: number;
   baseNetValue: number;
   aoi?: any; // GeoJSON Polygon
+  cachedContext?: {
+    mineralRecon?: {
+      predictedMinerals: string[];
+      reasoning: string;
+      nearestOccurrences: string[];
+      confidence: number;
+      reconAt?: string;
+      surfaceAnalysis?: {
+        ndvi: number;
+        thermal: number;
+        swir: number;
+        interpretation: string;
+      };
+    };
+    ragSummary?: { short: string; long: string; sourceRef: string };
+    nearestDeposits?: Array<{ name: string; distance: string; grade: string; source: string }>;
+    surfaceFeatures?: { ndvi: number; thermal: number; swir: number };
+  };
 }
 
 export interface MineralLayer {
