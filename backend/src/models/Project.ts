@@ -198,6 +198,19 @@ const ProjectSchema = new Schema<IProject>({
 
   // Cache
   cachedContext: {
+    mineralRecon: {
+      predictedMinerals: [String],
+      reasoning: String,
+      nearestOccurrences: [String],
+      confidence: Number,
+      reconAt: Date,
+      surfaceAnalysis: {
+        ndvi: Number,
+        thermal: Number,
+        swir: Number,
+        interpretation: String
+      }
+    },
     ragSummary: {
       short: String,
       long: String,
