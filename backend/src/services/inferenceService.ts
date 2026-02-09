@@ -320,10 +320,44 @@ Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade val
       const avgThermal = batchResults.reduce((sum, r) => sum + r.surfaceFeatures.thermal, 0) / batchResults.length;
       const avgSwir = batchResults.reduce((sum, r) => sum + r.surfaceFeatures.swir, 0) / batchResults.length;
 
-      // Map predictions back to voxels
-      const mergedVoxels = voxels.map(v => {
-        const pred = allPredictions.find((p: any) => p.id === v.id) || { au_grade: 0, cu_grade: 0, uncertainty: 1 };
-        return { ...v, ...pred };
+      // Map predictions back to voxels BY INDEX (not by ID, since LLM may use different IDs)
+      // The predictions are ordered by batch, and within each batch, ordered by voxel index
+      const mergedVoxels = voxels.map((v, idx) => {
+        // Use index-based mapping since predictions maintain order within batches
+        const pred = allPredictions[idx];
+
+        if (pred) {
+          // Merge voxel spatial data with prediction grades
+          // Keep original voxel id, x, y, z, lat, lon
+          const merged: any = {
+            id: v.id,
+            x: v.x,
+            y: v.y,
+            z: v.z,
+            lat: v.lat,
+            lon: v.lon,
+            uncertainty: pred.uncertainty ?? 0.5
+          };
+
+          // Copy all mineral grades from prediction
+          Object.keys(pred).forEach(key => {
+            if (key.endsWith('_grade')) {
+              merged[key] = pred[key];
+            }
+          });
+
+          return merged;
+        } else {
+          // Fallback with dynamic minerals
+          const fallback: any = {
+            ...v,
+            uncertainty: 1
+          };
+          reconResult.minerals.forEach(m => {
+            fallback[`${m.toLowerCase()}_grade`] = 0;
+          });
+          return fallback;
+        }
       });
 
       // =========================================
