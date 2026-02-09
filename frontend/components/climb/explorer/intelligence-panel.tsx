@@ -129,7 +129,7 @@ export function IntelligencePanel({
         >
           <div className="flex flex-col gap-2">
             <p className="text-xs leading-relaxed">
-              {project.ragContext.shortText}
+              {project.cachedContext?.mineralRecon?.reasoning || project.ragContext.shortText}
             </p>
             <button
               onClick={() => setRagExpanded(!ragExpanded)}
@@ -146,14 +146,14 @@ export function IntelligencePanel({
             {ragExpanded && (
               <div className="animate-fade-in-up">
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  {project.ragContext.longText}
+                  {project.cachedContext?.ragSummary?.long || project.ragContext.longText}
                 </p>
                 <div className="mt-2 flex items-center gap-1.5">
                   <span className="text-[10px] text-muted-foreground">
                     Source:
                   </span>
                   <button className="text-[10px] font-medium text-climb-mint hover:underline">
-                    {project.ragContext.sourceRef}
+                    {project.cachedContext?.ragSummary?.sourceRef || project.ragContext.sourceRef}
                   </button>
                 </div>
               </div>

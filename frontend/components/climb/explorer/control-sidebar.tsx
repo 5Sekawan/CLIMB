@@ -197,7 +197,6 @@ export function ControlSidebar({
                       </svg>
                     )}
                   </div>
-                  <span className={cn("h-3 w-3 rounded-full", m.color)} />
                   <span className="text-xs font-medium">{m.label}</span>
                 </button>
               );

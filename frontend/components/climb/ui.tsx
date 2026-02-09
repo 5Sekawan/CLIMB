@@ -28,13 +28,13 @@ export function CButton({
         "disabled:pointer-events-none disabled:opacity-50",
         // Variants
         variant === "solid" &&
-          "bg-primary text-primary-foreground shadow-climb-1 hover:shadow-climb-2 hover:bg-climb-mint-hover",
+        "bg-primary text-primary-foreground shadow-climb-1 hover:shadow-climb-2 hover:bg-climb-mint-hover",
         variant === "ghost" &&
-          "bg-transparent text-foreground hover:bg-muted",
+        "bg-transparent text-foreground hover:bg-muted",
         variant === "danger" &&
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         variant === "outline" &&
-          "border border-border bg-transparent text-foreground hover:bg-muted",
+        "border border-border bg-transparent text-foreground hover:bg-muted",
         // Sizes
         size === "sm" && "h-8 px-3 text-xs",
         size === "md" && "h-10 px-4 text-sm",
@@ -67,9 +67,9 @@ export function CBadge({
         variant === "ore" && "bg-climb-mint-subtle text-climb-mint",
         variant === "waste" && "bg-muted text-climb-waste",
         variant === "marginal" &&
-          "bg-amber-50 text-climb-marginal dark:bg-amber-950/30",
+        "bg-amber-50 text-climb-marginal dark:bg-amber-950/30",
         variant === "drifting" &&
-          "bg-red-50 text-climb-drifting dark:bg-red-950/30",
+        "bg-red-50 text-climb-drifting dark:bg-red-950/30",
         variant === "stable" && "bg-climb-mint-subtle text-climb-stable",
         variant === "default" && "bg-secondary text-secondary-foreground",
         className
@@ -192,7 +192,7 @@ export function AIStatusBadge({
         "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium",
         status === "idle" && "bg-muted text-muted-foreground",
         status === "processing" &&
-          "bg-climb-mint-subtle text-climb-mint animate-ai-pulse",
+        "bg-climb-mint-subtle text-climb-mint animate-ai-pulse",
         status === "complete" && "bg-climb-mint-subtle text-climb-mint",
         className
       )}
@@ -422,17 +422,20 @@ export function VoxelLegend({
       <span className="text-xs font-semibold text-foreground">
         {mineralName} ({unit})
       </span>
-      <div
-        className="h-32 w-4 rounded-full"
-        style={{
-          background:
-            "linear-gradient(to top, hsl(var(--climb-waste)), hsl(var(--climb-marginal)), hsl(var(--climb-ore)))",
-        }}
-      />
-      <div className="flex flex-col text-[10px] font-mono text-muted-foreground">
-        <span>{maxValue}</span>
-        <div className="flex-1" />
-        <span>{minValue}</span>
+      <div className="flex gap-2">
+        {/* Gradient bar - Blue (low) → Green (mid) → Red (high) */}
+        <div
+          className="h-32 w-4 rounded-full"
+          style={{
+            background: "linear-gradient(to top, rgb(0, 100, 255), rgb(0, 200, 100), rgb(255, 200, 0), rgb(255, 50, 0))",
+          }}
+        />
+        {/* Numeric labels */}
+        <div className="flex flex-col justify-between text-[10px] font-mono text-muted-foreground py-0.5">
+          <span>{maxValue}</span>
+          <span>{((maxValue + minValue) / 2).toFixed(1)}</span>
+          <span>{minValue}</span>
+        </div>
       </div>
     </div>
   );
