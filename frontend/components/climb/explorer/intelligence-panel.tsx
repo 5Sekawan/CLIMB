@@ -136,7 +136,7 @@ export function IntelligencePanel({ project, className }: IntelligencePanelProps
     ?? 0;
 
   return (
-    <div className={cn("flex flex-col h-full", className)}>
+    <div className={cn("flex w-[320px] shrink-0 flex-col h-full overflow-hidden border-l border-border bg-card/95 backdrop-blur-sm", className)}>
       {/* ─── Scrollable Content ──────────────────────── */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 pb-48">
         {/* Header */}

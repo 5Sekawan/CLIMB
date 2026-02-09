@@ -33,6 +33,7 @@ interface ControlSidebarProps {
 
 const layers = [
   { id: "satellite", label: "Satellite Imagery", icon: SatelliteIcon },
+  { id: "combined", label: "Combined View", icon: LayersIcon },
   { id: "voxel", label: "Voxel Model", icon: VoxelIcon },
 ];
 
@@ -123,7 +124,7 @@ export function ControlSidebar({
           {layers.map((layer) => {
             const Icon = layer.icon;
             const isActive = activeLayerId === layer.id;
-            const isDisabled = layer.id === "voxel" && !hasVoxels;
+            const isDisabled = (layer.id === "voxel" || layer.id === "combined") && !hasVoxels;
 
             return (
               <button

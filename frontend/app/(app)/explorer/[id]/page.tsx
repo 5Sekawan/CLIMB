@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { use } from "react";
 import { SatelliteView } from "@/components/climb/explorer/satellite-view";
 import { VoxelView3D } from "@/components/climb/explorer/voxel-view-3d";
+import { CombinedView } from "@/components/climb/explorer/combined-view";
 import { FloatingTools } from "@/components/climb/explorer/floating-tools";
 import { ControlSidebar } from "@/components/climb/explorer/control-sidebar";
 import { IntelligencePanel } from "@/components/climb/explorer/intelligence-panel";
@@ -141,6 +142,7 @@ function ExplorerStudio({
               projectName={project.name}
               center={project.center}
               aoi={project.aoi}
+              nearestDeposits={project.cachedContext?.nearestDeposits}
             />
           )}
 
@@ -150,6 +152,17 @@ function ExplorerStudio({
               projectId={project.id}
               selectedMinerals={selectedMinerals}
               depthValue={depthValue}
+              opacityValue={opacityValue}
+            />
+          )}
+
+          {activeLayerId === 'combined' && (
+            <CombinedView
+              projectName={project.name}
+              projectId={project.id}
+              center={project.center}
+              aoi={project.aoi}
+              selectedMinerals={selectedMinerals}
               opacityValue={opacityValue}
             />
           )}
