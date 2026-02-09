@@ -18,6 +18,7 @@ export interface IVoxelData {
   cu_grade?: number;
   rock_type?: string;
   uncertainty?: number;
+  [key: string]: string | number | boolean | undefined; // Allow dynamic *_grade keys and isOre
 }
 
 export interface IMineralMetadata {
@@ -148,7 +149,7 @@ const VoxelSchema = new Schema({
   cu_grade: Number,
   rock_type: String,
   uncertainty: Number
-}, { _id: false });
+}, { _id: false, strict: false }); // strict: false allows dynamic *_grade fields
 
 const ProjectSchema = new Schema<IProject>({
   name: {
