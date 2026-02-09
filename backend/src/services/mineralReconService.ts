@@ -153,14 +153,19 @@ OUTPUT FORMAT (JSON only, no markdown):
             const response = result.response;
             const text = (response.candidates && response.candidates[0].content.parts[0].text) || (response as any).text();
 
+            // LOG: Raw LLM response for Phase 0
+            Logger.info(`[MineralRecon] Raw LLM response (${text.length} chars): ${text.substring(0, 500)}${text.length > 500 ? '...' : ''}`);
+
             // Parse JSON response
             const jsonStr = text.replace(/```json|```/g, '').trim();
             let parsed: any;
 
             try {
                 parsed = JSON.parse(jsonStr);
+                Logger.info(`[MineralRecon] Parsed minerals: ${JSON.stringify(parsed.minerals)}, confidence: ${parsed.confidence}`);
             } catch (e) {
                 Logger.error('[MineralRecon] JSON parse error, using fallback', e);
+                Logger.warn(`[MineralRecon] Failed JSON string: ${jsonStr.substring(0, 300)}`);
                 parsed = this.fallbackPrediction(nearbyMinerals, nearestOccurrences, surfaceInterpretation);
             }
 

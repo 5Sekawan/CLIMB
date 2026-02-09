@@ -52,42 +52,58 @@ export class InferenceService {
         SatelliteService.getSWIR(batchGeojson)
       ]);
 
-      // Build batch-specific prompt with shared context + local geospatial
+      // Build dynamic format example for the LLM
       const mineralGradeFormat = sharedContext.minerals.map(m => `"${m.toLowerCase()}_grade": number`).join(', ');
-      const prompt = `
-System: You are an expert Geostatistician AI.
-Task: Estimate 3D mineral grade distribution for a specific sub-region.
+      const examplePrediction = sharedContext.minerals.reduce((obj: any, m) => {
+        obj[`${m.toLowerCase()}_grade`] = 0.5;
+        return obj;
+      }, { id: "voxel_0_0_0", uncertainty: 0.3 });
 
-SHARED CONTEXT (Global):
-- Project: ${sharedContext.projectName}
+      const prompt = `
+System: You are an expert Geostatistician AI specializing in mineral grade estimation.
+
+CRITICAL INSTRUCTION: You must predict grades for EXACTLY these minerals: ${sharedContext.minerals.join(', ')}
+DO NOT predict au_grade or cu_grade unless they are in the list above.
+EACH prediction object MUST contain: ${sharedContext.minerals.map(m => `${m.toLowerCase()}_grade`).join(', ')}
+
+PROJECT CONTEXT:
+- Name: ${sharedContext.projectName}
 - Location: ${sharedContext.location}
 - Target Minerals: ${sharedContext.minerals.join(', ')}
 - Nearby Deposits: ${JSON.stringify(sharedContext.nearestDeposits.slice(0, 3).map(d => ({
         name: d.site_name,
-        status: d.metadata?.dev_stat || 'Unknown',
+        mineral: d.mineral_type || 'Unknown',
         grade_info: d.grade ? `${d.grade} ${d.unit}` : 'Qualitative'
       })))}
-- Geological Reports: ${JSON.stringify(sharedContext.ragSnippets.slice(0, 2).map(r => r.content?.substring(0, 100) || ''))}
 
-LOCAL CONTEXT (This Sub-region):
+LOCAL SATELLITE DATA (This Sub-region):
 - Batch Center: ${centroid.lat.toFixed(6)}, ${centroid.lon.toFixed(6)}
-- Surface NDVI: ${ndvi.toFixed(3)}
-- Thermal: ${thermal.toFixed(2)}°C
-- SWIR Ratio: ${swir.toFixed(3)}
+- NDVI: ${ndvi.toFixed(3)} | Thermal: ${thermal.toFixed(2)}°C | SWIR: ${swir.toFixed(3)}
 
 VOXELS TO PREDICT: ${voxels.length}
-Voxel IDs: ${voxels.slice(0, 10).map(v => v.id).join(', ')}${voxels.length > 10 ? '...' : ''}
-Depth Range: 0-50m
+Voxel IDs: ${voxels.slice(0, 5).map(v => v.id).join(', ')}${voxels.length > 5 ? '...' : ''}
 
-OUTPUT FORMAT:
-Return ONLY a JSON array with predictions for these minerals: ${sharedContext.minerals.join(', ')}
-[{"id": "voxel_id", ${mineralGradeFormat}, "uncertainty": 0-1}]
-Generate predictions for ALL ${voxels.length} voxel IDs.
+OUTPUT FORMAT (STRICTLY FOLLOW THIS):
+Return ONLY a JSON array. Each object must have this EXACT structure:
+${JSON.stringify(examplePrediction, null, 2)}
+
+EXAMPLE OUTPUT for minerals [${sharedContext.minerals.join(', ')}]:
+[
+  {"id": "${voxels[0]?.id || 'voxel_0_0_0'}", ${sharedContext.minerals.map(m => `"${m.toLowerCase()}_grade": 0.8`).join(', ')}, "uncertainty": 0.2},
+  ...
+]
+
+Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade values (0-5 g/t range).
 `;
 
       const result = await generativeModel.generateContent(prompt);
       const response = result.response;
       const text = (response.candidates && response.candidates[0].content.parts[0].text) || (response as any).text();
+
+      // LOG: Raw LLM response for first batch only (to avoid flooding logs)
+      if (batchId === 0) {
+        Logger.info(`[Pipeline] Batch 0 Raw LLM response (${text.length} chars): ${text.substring(0, 1000)}${text.length > 1000 ? '...' : ''}`);
+      }
 
       // Parse JSON response
       const jsonStr = text.replace(/```json|```/g, '').trim();
@@ -95,28 +111,123 @@ Generate predictions for ALL ${voxels.length} voxel IDs.
 
       try {
         predictions = JSON.parse(jsonStr);
+        // LOG: Sample of parsed predictions for first batch
+        if (batchId === 0 && predictions.length > 0) {
+          Logger.info(`[Pipeline] Batch 0 Sample prediction: ${JSON.stringify(predictions[0])}`);
+          const sampleKeys = Object.keys(predictions[0]).filter(k => k.includes('_grade'));
+          Logger.info(`[Pipeline] Batch 0 Grade keys found: [${sampleKeys.join(', ')}]`);
+        }
       } catch (e) {
         Logger.error(`[Pipeline] Batch ${batchId} JSON parse error`, e);
-        // Fallback: generate empty predictions
-        predictions = voxels.map(v => ({ id: v.id, au_grade: 0, cu_grade: 0, uncertainty: 1 }));
+        Logger.warn(`[Pipeline] Batch ${batchId} Failed JSON: ${jsonStr.substring(0, 300)}`);
+        // Fallback: generate empty predictions for ALL target minerals dynamically
+        predictions = voxels.map(v => {
+          const pred: any = { id: v.id, uncertainty: 1 };
+          sharedContext.minerals.forEach(m => {
+            pred[`${m.toLowerCase()}_grade`] = 0;
+          });
+          return pred;
+        });
       }
 
-      Logger.info(`[Pipeline] Batch ${batchId} completed with ${predictions.length} predictions`);
+      // CRITICAL: Normalize predictions to ensure all requested minerals have grades
+      const normalizedPredictions = this.normalizePredictions(predictions, voxels, sharedContext.minerals);
+
+      Logger.info(`[Pipeline] Batch ${batchId} completed with ${normalizedPredictions.length} predictions`);
 
       return {
         batchId,
-        predictions,
+        predictions: normalizedPredictions,
         surfaceFeatures: { ndvi, thermal, swir }
       };
     } catch (error) {
       Logger.error(`[Pipeline] Batch ${batchId} failed`, error);
-      // Return empty predictions on error
+      // Return empty predictions with dynamic minerals on error
+      const emptyPredictions = voxels.map(v => {
+        const pred: any = { id: v.id, uncertainty: 1 };
+        sharedContext.minerals.forEach(m => {
+          pred[`${m.toLowerCase()}_grade`] = 0;
+        });
+        return pred;
+      });
       return {
         batchId,
-        predictions: voxels.map(v => ({ id: v.id, au_grade: 0, cu_grade: 0, uncertainty: 1 })),
+        predictions: emptyPredictions,
         surfaceFeatures: { ndvi: 0, thermal: 0, swir: 0 }
       };
     }
+  }
+
+  /**
+   * Normalize LLM predictions to ensure all requested minerals have grade values
+   * Handles cases where LLM returns wrong field names (e.g., au_grade instead of ag_grade)
+   */
+  private static normalizePredictions(
+    predictions: any[],
+    voxels: any[],
+    targetMinerals: string[]
+  ): any[] {
+    // Build a map of voxel IDs to their original data for fallback
+    const voxelMap = new Map(voxels.map(v => [v.id, v]));
+
+    return predictions.map((pred, idx) => {
+      const normalized: any = {
+        id: pred.id || voxels[idx]?.id || `voxel_${idx}`,
+        uncertainty: pred.uncertainty ?? 0.5
+      };
+
+      // Ensure each target mineral has a grade
+      targetMinerals.forEach(mineral => {
+        const key = `${mineral.toLowerCase()}_grade`;
+
+        if (pred[key] !== undefined && typeof pred[key] === 'number') {
+          // Use LLM's prediction if it exists
+          normalized[key] = pred[key];
+        } else {
+          // Check for common mismatches (e.g., LLM returns "gold_grade" instead of "au_grade")
+          const altKeys = this.getAlternativeGradeKeys(mineral);
+          let found = false;
+
+          for (const altKey of altKeys) {
+            if (pred[altKey] !== undefined && typeof pred[altKey] === 'number') {
+              normalized[key] = pred[altKey];
+              found = true;
+              break;
+            }
+          }
+
+          if (!found) {
+            // Default to 0 if no matching grade found
+            normalized[key] = 0;
+          }
+        }
+      });
+
+      return normalized;
+    });
+  }
+
+  /**
+   * Get alternative grade key names that LLM might use
+   */
+  private static getAlternativeGradeKeys(mineral: string): string[] {
+    const aliases: Record<string, string[]> = {
+      Au: ['gold_grade', 'au', 'gold'],
+      Cu: ['copper_grade', 'cu', 'copper'],
+      Ag: ['silver_grade', 'ag', 'silver'],
+      Ni: ['nickel_grade', 'ni', 'nickel'],
+      Co: ['cobalt_grade', 'co', 'cobalt'],
+      Fe: ['iron_grade', 'fe', 'iron'],
+      Mn: ['manganese_grade', 'mn', 'manganese'],
+      Sn: ['tin_grade', 'sn', 'tin'],
+      Mo: ['molybdenum_grade', 'mo', 'molybdenum'],
+      Zn: ['zinc_grade', 'zn', 'zinc'],
+      Cr: ['chromium_grade', 'cr', 'chromium'],
+      Ta: ['tantalum_grade', 'ta', 'tantalum'],
+      Pb: ['lead_grade', 'pb', 'lead'],
+      W: ['tungsten_grade', 'w', 'tungsten']
+    };
+    return aliases[mineral] || [];
   }
 
   /**

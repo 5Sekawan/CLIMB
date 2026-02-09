@@ -16,6 +16,7 @@ export interface IVoxelData {
   cu_grade?: number;
   rock_type?: string;
   uncertainty?: number;
+  [key: string]: any;  // Support dynamic mineral grades (e.g., ni_grade, ag_grade)
 }
 
 export interface IMineralMetadata {
