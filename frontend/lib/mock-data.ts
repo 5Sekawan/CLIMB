@@ -4,7 +4,7 @@
 // Each function here mirrors a future API endpoint / server action.
 // ─────────────────────────────────────────────────────────────
 
-export type ProjectStatus = "active" | "finished" | "inactive";
+export type ProjectStatus = "active" | "finished" | "inactive" | "processing";
 export type DriftStatus = "stable" | "drifting";
 
 // ─── Project (Dashboard level) ────────────────────────────────

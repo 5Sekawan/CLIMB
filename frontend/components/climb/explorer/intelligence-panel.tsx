@@ -55,17 +55,27 @@ interface IntelligencePanelProps {
 
 export function IntelligencePanel({ project, className }: IntelligencePanelProps) {
   const queryClient = useQueryClient();
-  const startInference = useStartInference(project.id);
+  const startInference = useStartInference();
   const [isPolling, setIsPolling] = useState(project.status === "processing");
   const prevStatusRef = useRef<string | undefined>(undefined);
 
   const inferenceStatus = useInferenceStatus(project.id, isPolling);
 
   // Derived state
-  const currentPhase: PipelinePhase = (inferenceStatus.data?.pipelinePhase as PipelinePhase) ||
-    (project.pipelinePhase as PipelinePhase) || "idle";
-  const isProcessing = project.status === "processing" || inferenceStatus.data?.status === "processing";
   const hasInferenceData = !!project.cachedContext?.mineralRecon;
+
+  // Auto-detect completed state for legacy projects (have data but no pipelinePhase set)
+  const resolvedPhase: PipelinePhase = (() => {
+    const polledPhase = inferenceStatus.data?.pipelinePhase as PipelinePhase | undefined;
+    if (polledPhase && polledPhase !== "idle") return polledPhase;
+    const projectPhase = project.pipelinePhase as PipelinePhase | undefined;
+    if (projectPhase && projectPhase !== "idle") return projectPhase;
+    // Legacy: if project has inference data but no phase set, treat as completed
+    if (hasInferenceData) return "completed";
+    return "idle";
+  })();
+
+  const isProcessing = project.status === "processing" || inferenceStatus.data?.status === "processing";
 
   // Track completion to invalidate project data
   useEffect(() => {
@@ -88,35 +98,36 @@ export function IntelligencePanel({ project, className }: IntelligencePanelProps
 
   // Button handler
   const handleRunInference = () => {
-    startInference.mutate(undefined, {
+    startInference.mutate(project.id, {
       onSuccess: () => setIsPolling(true),
     });
   };
 
   // ─── Button State ──────────────────────────────────
+  // Only disabled DURING processing — allows re-run after completion
+  const isButtonDisabled = isProcessing || startInference.isPending;
+
   const buttonLabel = isProcessing
     ? "Processing..."
     : hasInferenceData
-      ? "Inference Completed ✓"
+      ? "Re-run Inference"
       : "Run AI Inference";
 
-  const isButtonDisabled = isProcessing || startInference.isPending || hasInferenceData;
-
   // ─── Dynamic Card Visibility ───────────────────────
-  const showRecon = hasInferenceData || getStageStatus(0, currentPhase) === "done";
-  const showDeposits = showRecon && (currentPhase === "completed" ||
-    getPhaseIndex(currentPhase) >= 1 ||
+  const showRecon = hasInferenceData || getStageStatus(0, resolvedPhase) === "done";
+  const showDeposits = showRecon && (resolvedPhase === "completed" ||
+    getPhaseIndex(resolvedPhase) >= 1 ||
     !!project.cachedContext?.nearestDeposits);
-  const showSummary = currentPhase === "completed" && !!project.cachedContext?.aiSummary;
+  const showSummary = resolvedPhase === "completed" && !!project.cachedContext?.aiSummary;
 
   // ─── Pipeline Stages ──────────────────────────────
   const pipelineStages = useMemo(
     () =>
       PIPELINE_PHASES.map((phase, i) => ({
         label: phase.label,
-        status: getStageStatus(i, currentPhase),
+        status: getStageStatus(i, resolvedPhase),
       })),
-    [currentPhase]
+    [resolvedPhase]
   );
 
   // ─── Confidence Value ──────────────────────────────
@@ -191,7 +202,7 @@ export function IntelligencePanel({ project, className }: IntelligencePanelProps
                 key={i}
                 className={cn(
                   "rounded-xl border border-border/50 bg-card/50 p-5 animate-pulse",
-                  i > getPhaseIndex(currentPhase) && "opacity-30"
+                  i > getPhaseIndex(resolvedPhase) && "opacity-30"
                 )}
               >
                 <div className="flex items-start gap-3">
@@ -352,12 +363,12 @@ export function IntelligencePanel({ project, className }: IntelligencePanelProps
           </div>
           <span className={cn(
             "text-[10px] font-semibold rounded-full px-2 py-0.5",
-            currentPhase === "idle" && "text-muted-foreground bg-muted",
-            currentPhase === "completed" && "text-climb-mint bg-climb-mint-subtle",
-            currentPhase !== "idle" && currentPhase !== "completed" && "text-climb-mint bg-climb-mint-subtle animate-ai-pulse"
+            resolvedPhase === "idle" && "text-muted-foreground bg-muted",
+            resolvedPhase === "completed" && "text-climb-mint bg-climb-mint-subtle",
+            resolvedPhase !== "idle" && resolvedPhase !== "completed" && "text-climb-mint bg-climb-mint-subtle animate-ai-pulse"
           )}>
-            {currentPhase === "idle" ? "WAITING" :
-              currentPhase === "completed" ? "COMPLETE" : "RUNNING"}
+            {resolvedPhase === "idle" ? "WAITING" :
+              resolvedPhase === "completed" ? "COMPLETE" : "RUNNING"}
           </span>
         </div>
         <InferenceLoading stages={pipelineStages} />
