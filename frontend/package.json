@@ -13,6 +13,7 @@
     "@deck.gl/geo-layers": "^9.0.0",
     "@deck.gl/google-maps": "^9.2.6",
     "@deck.gl/layers": "^9.0.0",
+    "@deck.gl/mesh-layers": "^9.0.0",
     "@deck.gl/react": "^9.0.0",
     "@hookform/resolvers": "^3.9.1",
     "@loaders.gl/core": "^4.0.0",

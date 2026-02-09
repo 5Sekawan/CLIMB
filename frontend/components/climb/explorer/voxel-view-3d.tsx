@@ -4,8 +4,8 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { cn } from "@/lib/utils";
 import { VoxelLegend } from "@/components/climb/ui";
 import DeckGL from '@deck.gl/react';
-import { OrbitView } from '@deck.gl/core';
-import { PointCloudLayer } from '@deck.gl/layers';
+import { OrbitView, LightingEffect, AmbientLight, DirectionalLight } from '@deck.gl/core';
+import { ScatterplotLayer } from '@deck.gl/layers';
 import { useProjectVoxels } from "@/hooks/use-projects";
 
 // --- Mineral Grade Keys ---
@@ -40,15 +40,57 @@ interface TooltipInfo {
     object: any;
 }
 
+interface GridVoxel {
+    id: string;
+    gridX: number;
+    gridY: number;
+    gridZ: number;
+    position: [number, number, number];
+    color: [number, number, number, number];
+    originalX: number;
+    originalY: number;
+    originalZ: number;
+    [key: string]: any;
+}
+
+// --- Constants ---
+const SPHERE_RADIUS = 8;  // Pixel radius for scatterplot points
+const GRID_SPACING = 25;  // Spacing between voxel centers in world units
+const DEPTH_SCALE = 1.5;  // Exaggerate depth for better visibility
+
 // --- Initial View State ---
 const INITIAL_VIEW_STATE = {
     target: [0, 0, 0] as [number, number, number],
     rotationX: 45,
-    rotationOrbit: 0,
-    zoom: 3,
+    rotationOrbit: -30,
+    zoom: 2,
     minZoom: -2,
     maxZoom: 10,
 };
+
+// --- Lighting Setup ---
+const ambientLight = new AmbientLight({
+    color: [255, 255, 255],
+    intensity: 0.6,
+});
+
+const directionalLight1 = new DirectionalLight({
+    color: [255, 255, 255],
+    intensity: 0.8,
+    direction: [-1, -2, -3],
+});
+
+const directionalLight2 = new DirectionalLight({
+    color: [200, 200, 255],
+    intensity: 0.3,
+    direction: [1, 1, 1],
+});
+
+const lightingEffect = new LightingEffect({
+    ambientLight,
+    directionalLight1,
+    directionalLight2,
+});
 
 export function VoxelView3D({
     className,
@@ -64,84 +106,124 @@ export function VoxelView3D({
     // Fetch voxel data
     const { data: voxels, isLoading, isError } = useProjectVoxels(projectId);
 
-    // Process voxels for 3D rendering
-    const processedVoxels = useMemo(() => {
-        if (!voxels || voxels.length === 0) return [];
+    // Transform voxels to uniform 3D grid
+    const { gridVoxels, gridDimensions } = useMemo(() => {
+        if (!voxels || voxels.length === 0) {
+            return { gridVoxels: [], gridDimensions: { x: 0, y: 0, z: 0 } };
+        }
 
         // Filter by depth
         const filtered = voxels.filter((v: any) => Math.abs(v.z) <= depthValue);
 
-        // Calculate bounds for centering
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-        let minZ = Infinity, maxZ = -Infinity;
+        if (filtered.length === 0) {
+            return { gridVoxels: [], gridDimensions: { x: 0, y: 0, z: 0 } };
+        }
+
+        // Step 1: Extract unique X (lon), Y (lat), and Z (depth) values
+        const uniqueXSet = new Set<string>();
+        const uniqueYSet = new Set<string>();
+        const uniqueZSet = new Set<string>();
 
         filtered.forEach((v: any) => {
-            minX = Math.min(minX, v.x);
-            maxX = Math.max(maxX, v.x);
-            minY = Math.min(minY, v.y);
-            maxY = Math.max(maxY, v.y);
-            minZ = Math.min(minZ, v.z);
-            maxZ = Math.max(maxZ, v.z);
+            uniqueXSet.add(v.x.toFixed(6));
+            uniqueYSet.add(v.y.toFixed(6));
+            uniqueZSet.add(v.z.toFixed(1));
         });
 
-        const centerX = (minX + maxX) / 2;
-        const centerY = (minY + maxY) / 2;
-        const centerZ = (minZ + maxZ) / 2;
+        // Step 2: Sort and create index mappings
+        const uniqueXs = Array.from(uniqueXSet).sort((a, b) => parseFloat(a) - parseFloat(b));
+        const uniqueYs = Array.from(uniqueYSet).sort((a, b) => parseFloat(a) - parseFloat(b));
+        const uniqueZs = Array.from(uniqueZSet).sort((a, b) => parseFloat(a) - parseFloat(b));
 
-        // Normalize positions relative to center and scale for visibility
-        const scale = 100; // Scale factor for better visibility
-        return filtered.map((v: any) => ({
-            ...v,
-            position: [
-                (v.x - centerX) * scale,
-                (v.y - centerY) * scale,
-                (v.z - centerZ) * scale * 5, // Exaggerate Z for depth visibility
-            ],
-            originalX: v.x,
-            originalY: v.y,
-        }));
-    }, [voxels, depthValue]);
+        const xIndex = new Map(uniqueXs.map((x, i) => [x, i]));
+        const yIndex = new Map(uniqueYs.map((y, i) => [y, i]));
+        const zIndex = new Map(uniqueZs.map((z, i) => [z, i]));
+
+        // Step 3: Calculate grid center for centering the view
+        const gridWidth = uniqueXs.length;
+        const gridHeight = uniqueYs.length;
+        const gridDepth = uniqueZs.length;
+
+        const centerX = ((gridWidth - 1) * GRID_SPACING) / 2;
+        const centerY = ((gridHeight - 1) * GRID_SPACING) / 2;
+        const centerZ = ((gridDepth - 1) * GRID_SPACING * DEPTH_SCALE) / 2;
+
+        // Step 4: Transform each voxel to grid coordinates
+        const transformed: GridVoxel[] = filtered.map((v: any) => {
+            const gx = xIndex.get(v.x.toFixed(6)) ?? 0;
+            const gy = yIndex.get(v.y.toFixed(6)) ?? 0;
+            const gz = zIndex.get(v.z.toFixed(1)) ?? 0;
+
+            // Find highest grade among selected minerals for coloring
+            let maxGrade = 0;
+            selectedMinerals.forEach(mineral => {
+                const key = MINERAL_GRADE_KEYS[mineral] || `${mineral.toLowerCase()}_grade`;
+                const grade = v[key] || 0;
+                if (grade > maxGrade) {
+                    maxGrade = grade;
+                }
+            });
+
+            // Normalize grade (0-5 scale to 0-1)
+            const n = Math.min(Math.max(maxGrade, 0), 5) / 5;
+
+            // Color gradient: Blue (cold) → Green (mid) → Red (hot)
+            const color: [number, number, number, number] = [
+                Math.round(255 * n),                          // R
+                Math.round(255 * (1 - Math.abs(0.5 - n) * 2)), // G
+                Math.round(255 * (1 - n)),                    // B
+                Math.round(255 * opacityValue),               // A
+            ];
+
+            return {
+                ...v,
+                id: v.id,
+                gridX: gx,
+                gridY: gy,
+                gridZ: gz,
+                position: [
+                    gx * GRID_SPACING - centerX,
+                    gy * GRID_SPACING - centerY,
+                    -gz * GRID_SPACING * DEPTH_SCALE + centerZ, // Negative Z so depth goes "down"
+                ] as [number, number, number],
+                color,
+                originalX: v.x,
+                originalY: v.y,
+                originalZ: v.z,
+            };
+        });
+
+        return {
+            gridVoxels: transformed,
+            gridDimensions: { x: gridWidth, y: gridHeight, z: gridDepth },
+        };
+    }, [voxels, depthValue, selectedMinerals, opacityValue]);
 
     // Construct Deck.gl layers
     const layers = useMemo(() => {
-        if (processedVoxels.length === 0) return [];
+        if (gridVoxels.length === 0) return [];
 
         return [
-            new PointCloudLayer({
-                id: 'voxel-layer',
-                data: processedVoxels,
+            new ScatterplotLayer({
+                id: 'voxel-sphere-layer',
+                data: gridVoxels,
                 pickable: true,
-                getPosition: (d: any) => d.position,
-                getNormal: [0, 0, 1],
-                getColor: (d: any) => {
-                    // Find highest grade among selected minerals
-                    let maxGrade = 0;
-                    selectedMinerals.forEach(mineral => {
-                        const key = MINERAL_GRADE_KEYS[mineral] || `${mineral.toLowerCase()}_grade`;
-                        const grade = d[key] || 0;
-                        if (grade > maxGrade) {
-                            maxGrade = grade;
-                        }
-                    });
-
-                    // Normalize grade (0-5 scale to 0-1)
-                    const n = Math.min(Math.max(maxGrade, 0), 5) / 5;
-
-                    // Color gradient: Blue (cold) → Green (mid) → Red (hot)
-                    return [
-                        Math.round(255 * n),                          // R
-                        Math.round(255 * (1 - Math.abs(0.5 - n) * 2)), // G
-                        Math.round(255 * (1 - n)),                    // B
-                        Math.round(255 * opacityValue),               // A
-                    ];
-                },
-                pointSize: 12,
-                material: {
-                    ambient: 0.5,
-                    diffuse: 0.6,
-                    shininess: 100,
-                },
+                stroked: true,
+                filled: true,
+                radiusUnits: 'pixels',
+                lineWidthUnits: 'pixels',
+                getPosition: (d: GridVoxel) => d.position,
+                getFillColor: (d: GridVoxel) => d.color,
+                getLineColor: (d: GridVoxel) => [
+                    Math.min(255, d.color[0] + 40),
+                    Math.min(255, d.color[1] + 40),
+                    Math.min(255, d.color[2] + 40),
+                    255
+                ],
+                getRadius: SPHERE_RADIUS,
+                lineWidthMinPixels: 1,
+                lineWidthMaxPixels: 2,
+                antialiasing: true,
                 onHover: (info: any) => {
                     if (info.object) {
                         setTooltip({
@@ -155,7 +237,7 @@ export function VoxelView3D({
                 },
             }),
         ];
-    }, [processedVoxels, selectedMinerals, opacityValue]);
+    }, [gridVoxels]);
 
     // Tooltip content renderer
     const renderTooltip = useCallback(() => {
@@ -180,10 +262,15 @@ export function VoxelView3D({
                 className="absolute z-50 pointer-events-none"
                 style={{ left: x + 10, top: y + 10 }}
             >
-                <div className="rounded-lg bg-slate-900/95 border border-slate-700 px-3 py-2 shadow-xl backdrop-blur-sm min-w-[180px]">
+                <div className="rounded-lg bg-slate-900/95 border border-slate-700 px-3 py-2 shadow-xl backdrop-blur-sm min-w-[200px]">
                     {/* Header */}
                     <div className="text-xs font-bold text-climb-mint border-b border-slate-700 pb-1 mb-2">
                         Voxel {object.id || 'Unknown'}
+                    </div>
+
+                    {/* Grid Position */}
+                    <div className="text-[10px] text-slate-400 mb-2 font-mono">
+                        Grid: [{object.gridX}, {object.gridY}, {object.gridZ}]
                     </div>
 
                     {/* Mineral Grades */}
@@ -191,11 +278,11 @@ export function VoxelView3D({
                         {gradeLines}
                     </div>
 
-                    {/* Depth & Coordinates */}
+                    {/* Original Depth & Coordinates */}
                     <div className="border-t border-slate-700 pt-2 text-[10px] text-slate-400 space-y-0.5">
                         <div className="flex justify-between">
                             <span>Depth:</span>
-                            <span className="font-mono">{object.z?.toFixed(1)}m</span>
+                            <span className="font-mono">{object.originalZ?.toFixed(1)}m</span>
                         </div>
                         <div className="flex justify-between">
                             <span>Coords:</span>
@@ -246,7 +333,7 @@ export function VoxelView3D({
         <div className={cn("relative h-full w-full bg-slate-950 overflow-hidden", className)}>
             {/* Deck.gl 3D Canvas */}
             <DeckGL
-                views={new OrbitView({ id: 'orbit' })}
+                views={new OrbitView({ id: 'orbit', orbitAxis: 'Z' })}
                 initialViewState={INITIAL_VIEW_STATE}
                 controller={{
                     scrollZoom: true,
@@ -258,6 +345,7 @@ export function VoxelView3D({
                     keyboard: true,
                 }}
                 layers={layers}
+                effects={[lightingEffect]}
                 style={{ width: '100%', height: '100%' }}
             />
 
@@ -282,7 +370,7 @@ export function VoxelView3D({
 
             {/* Stats */}
             <div className="absolute bottom-3 left-3 rounded-md bg-black/60 px-2.5 py-1 font-mono text-[10px] text-white/60 backdrop-blur-sm pointer-events-none z-10">
-                {processedVoxels.length.toLocaleString()} voxels • Depth ≤ {depthValue}m
+                {gridVoxels.length.toLocaleString()} voxels • Grid {gridDimensions.x}×{gridDimensions.y}×{gridDimensions.z} • Depth ≤ {depthValue}m
             </div>
 
             {/* Legend */}
