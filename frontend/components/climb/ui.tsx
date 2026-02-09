@@ -441,7 +441,7 @@ export function VoxelLegend({
   );
 }
 
-// ─── Inference Loading Stage ─────────────────────────────────
+// ─── Inference Loading Stage (Legacy) ─────────────────────────────────
 interface InferenceLoadingProps {
   stages: { label: string; done: boolean }[];
   className?: string;
@@ -473,6 +473,142 @@ export function InferenceLoading({ stages, className }: InferenceLoadingProps) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── Pipeline Stepper (Enhanced UX) ─────────────────────────────────
+interface PipelineStep {
+  id: string;
+  label: string;
+  shortLabel?: string;
+}
+
+interface PipelineStepperProps {
+  steps: PipelineStep[];
+  currentStep: string;
+  completedSteps: string[];
+  progress: number;
+  isProcessing: boolean;
+  className?: string;
+}
+
+export function PipelineStepper({
+  steps,
+  currentStep,
+  completedSteps,
+  progress,
+  isProcessing,
+  className,
+}: PipelineStepperProps) {
+  const getStepStatus = (stepId: string, index: number) => {
+    if (completedSteps.includes(stepId)) return 'completed';
+    if (currentStep === stepId) return 'current';
+    const currentIndex = steps.findIndex(s => s.id === currentStep);
+    if (index < currentIndex) return 'completed';
+    return 'pending';
+  };
+
+  return (
+    <div className={cn("flex flex-col gap-3", className)}>
+      {/* Header with Progress */}
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold text-foreground uppercase tracking-wider">
+          Inference Pipeline
+        </span>
+        <div className="flex items-center gap-2">
+          {isProcessing && (
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-climb-mint opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-climb-mint" />
+            </span>
+          )}
+          <span className="font-mono text-[10px] text-foreground font-semibold">
+            {progress}%
+          </span>
+        </div>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="relative h-1.5 w-full rounded-full bg-muted overflow-hidden">
+        <div
+          className="absolute inset-y-0 left-0 bg-gradient-to-r from-climb-mint via-climb-mint to-climb-mint/60 transition-all duration-700 ease-out rounded-full"
+          style={{ width: `${Math.min(progress, 100)}%` }}
+        />
+      </div>
+
+      {/* Horizontal Steps */}
+      <div className="relative flex items-start justify-between pt-1">
+        {/* Connecting Line (Background) */}
+        <div className="absolute top-[13px] left-[10px] right-[10px] h-[2px] bg-muted rounded-full" />
+
+        {/* Connecting Line (Progress) */}
+        <div
+          className="absolute top-[13px] left-[10px] h-[2px] bg-climb-mint rounded-full transition-all duration-500"
+          style={{
+            width: `calc(${Math.max(0, (completedSteps.length - 1) / (steps.length - 1)) * 100}% - 20px)`
+          }}
+        />
+
+        {/* Step Indicators */}
+        {steps.map((step, i) => {
+          const status = getStepStatus(step.id, i);
+          return (
+            <div
+              key={step.id}
+              className="relative z-10 flex flex-col items-center gap-1.5 w-[45px]"
+            >
+              {/* Step Circle */}
+              <div
+                className={cn(
+                  "flex h-5 w-5 items-center justify-center rounded-full transition-all duration-300 shrink-0",
+                  status === 'completed' && "bg-climb-mint text-black shadow-sm shadow-climb-mint/30",
+                  status === 'current' && "bg-background border-2 border-climb-mint shadow-sm shadow-climb-mint/50",
+                  status === 'pending' && "bg-muted border border-muted-foreground/20"
+                )}
+              >
+                {status === 'completed' ? (
+                  <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : status === 'current' ? (
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-climb-mint opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-climb-mint" />
+                  </span>
+                ) : (
+                  <span className="text-[7px] font-bold text-muted-foreground">{i + 1}</span>
+                )}
+              </div>
+
+              {/* Step Label */}
+              <span
+                className={cn(
+                  "text-[8px] text-center leading-tight font-medium",
+                  status === 'completed' && "text-climb-mint",
+                  status === 'current' && "text-foreground",
+                  status === 'pending' && "text-muted-foreground/60"
+                )}
+              >
+                {step.shortLabel || step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Current Phase Detail */}
+      {isProcessing && currentStep && currentStep !== 'idle' && currentStep !== 'complete' && (
+        <div className="flex items-center justify-center gap-2 py-1.5 text-[10px] text-foreground bg-climb-mint/10 rounded-md border border-climb-mint/20">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-climb-mint opacity-75" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-climb-mint" />
+          </span>
+          <span className="font-medium">
+            {steps.find(s => s.id === currentStep)?.label || currentStep}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

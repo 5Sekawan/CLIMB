@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { use } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { SatelliteView } from "@/components/climb/explorer/satellite-view";
 import { VoxelView3D } from "@/components/climb/explorer/voxel-view-3d";
 import { FloatingTools } from "@/components/climb/explorer/floating-tools";
 import { ControlSidebar } from "@/components/climb/explorer/control-sidebar";
 import { IntelligencePanel } from "@/components/climb/explorer/intelligence-panel";
 import { OperationalCockpit } from "@/components/climb/explorer/operational-cockpit";
-import { useProjectDetail, useProjectVoxels } from "@/hooks/use-projects";
+import { useProjectDetail, useProjectVoxels, useInferenceStatus, useStartInference } from "@/hooks/use-projects";
 import { MountainIcon, ArrowLeftIcon, RecycleIcon } from "@/components/climb/icons";
 import { CButton } from "@/components/climb/ui";
 import Link from "next/link";
@@ -63,16 +64,39 @@ function ExplorerStudio({
 }: {
   project: NonNullable<ReturnType<typeof useProjectDetail>['data']>;
 }) {
-  // Fetch voxels to determine if they exist
-  const { data: voxels } = useProjectVoxels(project?.id || "");
+  const queryClient = useQueryClient();
 
-  // Compute hasVoxels: true if inference completed and voxels exist
+  // Fetch voxels to determine if they exist
+  const { data: voxels, refetch: refetchVoxels } = useProjectVoxels(project?.id || "");
+
+  // Lift inference status to parent - enables real-time updates across all children
+  const startInference = useStartInference();
+  const { data: statusData } = useInferenceStatus(
+    project?.id || "",
+    true // Always poll to detect status changes
+  );
+
+  const currentStatus = statusData?.status || (project as any).status;
+  const isProcessing = currentStatus === 'processing';
+  const inferencePhase = statusData?.inferencePhase;
+
+  // Invalidate queries when inference completes (status changes to 'active' after processing)
+  useEffect(() => {
+    if (currentStatus === 'active' && !isProcessing) {
+      // Refetch project data and voxels when inference completes
+      queryClient.invalidateQueries({ queryKey: ['project', project.id] });
+      refetchVoxels();
+    }
+  }, [currentStatus, isProcessing, project.id, queryClient, refetchVoxels]);
+
+  // Compute hasVoxels: ONLY true if inference has been run (lastInferenceAt exists)
   const hasVoxels = useMemo(() => {
     if (!project) return false;
-    const projectStatus = (project as any).status;
+    const hasInferenceRun = !!(project as any).lastInferenceAt;
     const hasVoxelData = voxels && Array.isArray(voxels) && voxels.length > 0;
-    return projectStatus === 'completed' || hasVoxelData;
-  }, [project, voxels]);
+    // Lock until inference has actually run AND we're not currently processing
+    return (hasInferenceRun || hasVoxelData) && !isProcessing;
+  }, [project, voxels, isProcessing]);
 
   // State: Multi-select minerals (default to first mineral)
   const defaultMinerals = useMemo(() => {
@@ -161,7 +185,13 @@ function ExplorerStudio({
         </div>
 
         {/* Right Intelligence Panel */}
-        <IntelligencePanel project={project} className="rounded-lg" />
+        <IntelligencePanel
+          project={project}
+          inferenceStatus={statusData}
+          isProcessing={isProcessing}
+          onStartInference={() => startInference.mutate(project.id)}
+          className="rounded-lg"
+        />
       </div>
 
       {/* Bottom Operational Cockpit */}
