@@ -205,9 +205,9 @@ export function CombinedView({
                     pickable: true,
                     getPosition: (d: any) => [d.x, d.y],
                     getFillColor: (d: any) => gradeToColor(getMaxGrade(d, selectedMinerals), opacityValue),
-                    getRadius: 30,
-                    radiusMinPixels: 4,
-                    radiusMaxPixels: 20,
+                    getRadius: 60,
+                    radiusMinPixels: 8,
+                    radiusMaxPixels: 35,
                     stroked: false,
                     updateTriggers: {
                         getFillColor: [selectedMinerals, opacityValue],
@@ -254,14 +254,14 @@ export function CombinedView({
                         <button
                             onClick={() => setIsCumulative(!isCumulative)}
                             className={cn(
-                                "relative h-5 w-10 rounded-full transition-colors duration-200",
+                                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200",
                                 isCumulative ? "bg-climb-mint" : "bg-white/20"
                             )}
                         >
                             <span
                                 className={cn(
-                                    "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200",
-                                    isCumulative ? "translate-x-5" : "translate-x-0.5"
+                                    "inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200",
+                                    isCumulative ? "translate-x-6" : "translate-x-1"
                                 )}
                             />
                         </button>
