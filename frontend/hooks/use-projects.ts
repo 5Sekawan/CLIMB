@@ -148,6 +148,7 @@ export function useProjectDetail(id: string) {
         baseGradeRange: "-", // Placeholder
         depthRange: "0-50m", // Placeholder
         aoi: project.aoi, // Pass GeoJSON
+        pipelinePhase: project.pipelinePhase || 'idle',
         // Pass through cachedContext for advanced UI features
         cachedContext: project.cachedContext,
       };
@@ -212,15 +213,20 @@ export function useStartInference() {
 }
 
 export function useInferenceStatus(projectId: string, enabled: boolean) {
+  const queryClient = useQueryClient();
+
   return useQuery({
     queryKey: ['project-status', projectId],
     queryFn: async () => {
-      const { data } = await api.get<{ success: boolean; status: string; lastInferenceAt?: string }>(`/projects/${projectId}/status`);
+      const { data } = await api.get<{ success: boolean; status: string; lastInferenceAt?: string; pipelinePhase?: string }>(`/projects/${projectId}/status`);
       return data;
     },
     enabled: enabled && !!projectId,
     refetchInterval: (query) => {
-      return query.state.data?.status === 'processing' ? 3000 : false;
+      const status = query.state.data?.status;
+      if (status === 'processing') return 2000;
+      // If just completed, invalidate the project detail to fetch fresh data
+      return false;
     },
   });
 }

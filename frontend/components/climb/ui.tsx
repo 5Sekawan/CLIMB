@@ -443,33 +443,42 @@ export function VoxelLegend({
 
 // ─── Inference Loading Stage ─────────────────────────────────
 interface InferenceLoadingProps {
-  stages: { label: string; done: boolean }[];
+  stages: { label: string; status: 'done' | 'active' | 'pending' }[];
   className?: string;
 }
 
 export function InferenceLoading({ stages, className }: InferenceLoadingProps) {
   return (
-    <div className={cn("flex flex-col gap-3", className)}>
+    <div className={cn("flex flex-col gap-2.5", className)}>
       {stages.map((stage, i) => (
         <div
           key={i}
           className="flex items-center gap-3"
         >
-          <div
-            className={cn(
-              "h-2 w-2 rounded-full shrink-0 transition-colors duration-climb-smooth",
-              stage.done ? "bg-climb-mint" : "bg-muted-foreground animate-ai-pulse"
+          <div className="relative flex items-center justify-center h-4 w-4 shrink-0">
+            {stage.status === 'done' && (
+              <div className="h-2.5 w-2.5 rounded-full bg-climb-mint" />
             )}
-          />
+            {stage.status === 'active' && (
+              <>
+                <div className="absolute inset-0 rounded-full bg-climb-mint/20 animate-ping" />
+                <div className="h-2.5 w-2.5 rounded-full bg-climb-mint animate-ai-pulse" />
+              </>
+            )}
+            {stage.status === 'pending' && (
+              <div className="h-2 w-2 rounded-full bg-muted-foreground/40" />
+            )}
+          </div>
           <span
             className={cn(
-              "text-xs transition-colors duration-climb-smooth",
-              stage.done
-                ? "text-foreground font-medium"
-                : "text-muted-foreground"
+              "text-xs transition-all duration-climb-smooth",
+              stage.status === 'done' && "text-foreground font-medium",
+              stage.status === 'active' && "text-climb-mint font-semibold",
+              stage.status === 'pending' && "text-muted-foreground/60"
             )}
           >
             {stage.label}
+            {stage.status === 'done' && ' ✓'}
           </span>
         </div>
       ))}

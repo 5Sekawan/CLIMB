@@ -61,6 +61,11 @@ export interface ICachedContext {
     batchCount: number;
     voxelsPerBatch: number;
   };
+  aiSummary?: {
+    text: string;
+    confidence: number;
+    generatedAt: Date;
+  };
 }
 
 export interface IEconomicParams {
@@ -97,6 +102,7 @@ export interface IProject extends Document {
   driftStatus: 'stable' | 'drifting';
   confidence: number; // 0-100
   lastInferenceAt?: Date;
+  pipelinePhase: 'idle' | 'mineral_recon' | 'gathering_context' | 'voxelization' | 'batch_processing' | 'merging_results' | 'generating_summary' | 'completed';
   createdBy: mongoose.Types.ObjectId; // User ID
 
   // --- Cached Context (Persisted from Inference) ---
@@ -194,6 +200,11 @@ const ProjectSchema = new Schema<IProject>({
   },
   confidence: { type: Number, default: 0 },
   lastInferenceAt: Date,
+  pipelinePhase: {
+    type: String,
+    enum: ['idle', 'mineral_recon', 'gathering_context', 'voxelization', 'batch_processing', 'merging_results', 'generating_summary', 'completed'],
+    default: 'idle'
+  },
   createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: false }, // Optional for now to support legacy data
 
   // Cache
@@ -232,6 +243,11 @@ const ProjectSchema = new Schema<IProject>({
       totalVoxels: Number,
       batchCount: Number,
       voxelsPerBatch: Number
+    },
+    aiSummary: {
+      text: String,
+      confidence: Number,
+      generatedAt: Date
     }
   },
 

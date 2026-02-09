@@ -9,236 +9,359 @@ import {
 } from "@/components/climb/ui";
 import {
   BrainIcon,
-  FileTextIcon,
   GlobeIcon,
-  ChevronDownIcon,
   MapPinIcon,
-  RotateIcon,
   LayersIcon,
+  FileTextIcon,
 } from "@/components/climb/icons";
-import { useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { ProjectDetail } from "@/lib/mock-data";
 import { useStartInference, useInferenceStatus } from "@/hooks/use-projects";
+import { useQueryClient } from "@tanstack/react-query";
 
+// ─── Pipeline Phase Mapping ──────────────────────────────────
+const PIPELINE_PHASES = [
+  { key: "mineral_recon", label: "Mineral Reconnaissance" },
+  { key: "gathering_context", label: "Gathering Geological Context" },
+  { key: "voxelization", label: "Spatial Voxelization" },
+  { key: "batch_processing", label: "Parallel Batch Processing" },
+  { key: "merging_results", label: "Merging Results" },
+  { key: "generating_summary", label: "Generating AI Summary" },
+] as const;
+
+type PipelinePhase = typeof PIPELINE_PHASES[number]["key"] | "idle" | "completed";
+
+function getPhaseIndex(phase: PipelinePhase): number {
+  return PIPELINE_PHASES.findIndex((p) => p.key === phase);
+}
+
+function getStageStatus(
+  stageIndex: number,
+  currentPhase: PipelinePhase
+): "done" | "active" | "pending" {
+  if (currentPhase === "completed") return "done";
+  if (currentPhase === "idle") return "pending";
+  const currentIndex = getPhaseIndex(currentPhase);
+  if (stageIndex < currentIndex) return "done";
+  if (stageIndex === currentIndex) return "active";
+  return "pending";
+}
+
+// ─── Component ───────────────────────────────────────────────
 interface IntelligencePanelProps {
   project: ProjectDetail;
   className?: string;
 }
 
-export function IntelligencePanel({
-  project,
-  className,
-}: IntelligencePanelProps) {
-  const [ragExpanded, setRagExpanded] = useState(false);
-  const startInference = useStartInference();
+export function IntelligencePanel({ project, className }: IntelligencePanelProps) {
+  const queryClient = useQueryClient();
+  const startInference = useStartInference(project.id);
+  const [isPolling, setIsPolling] = useState(project.status === "processing");
+  const prevStatusRef = useRef<string | undefined>(undefined);
 
-  // Polling status if the project is currently processing or after a manual start
-  const { data: statusData } = useInferenceStatus(
-    project.id,
-    project.status === 'processing' || startInference.isPending
-  );
+  const inferenceStatus = useInferenceStatus(project.id, isPolling);
 
-  const currentStatus = statusData?.status || project.status;
-  const isProcessing = currentStatus === 'processing';
+  // Derived state
+  const currentPhase: PipelinePhase = (inferenceStatus.data?.pipelinePhase as PipelinePhase) ||
+    (project.pipelinePhase as PipelinePhase) || "idle";
+  const isProcessing = project.status === "processing" || inferenceStatus.data?.status === "processing";
+  const hasInferenceData = !!project.cachedContext?.mineralRecon;
 
-  const handleStartInference = () => {
-    startInference.mutate(project.id);
+  // Track completion to invalidate project data
+  useEffect(() => {
+    const prevStatus = prevStatusRef.current;
+    const newStatus = inferenceStatus.data?.status;
+    prevStatusRef.current = newStatus;
+
+    if (prevStatus === "processing" && newStatus === "active") {
+      setIsPolling(false);
+      queryClient.invalidateQueries({ queryKey: ["project", project.id] });
+    }
+  }, [inferenceStatus.data?.status, queryClient, project.id]);
+
+  // Start polling when inference starts
+  useEffect(() => {
+    if (project.status === "processing") {
+      setIsPolling(true);
+    }
+  }, [project.status]);
+
+  // Button handler
+  const handleRunInference = () => {
+    startInference.mutate(undefined, {
+      onSuccess: () => setIsPolling(true),
+    });
   };
 
-  return (
-    <aside
-      className={cn(
-        "flex w-[320px] flex-col overflow-y-auto border-l border-border bg-card/95 backdrop-blur-sm",
-        className,
-      )}
-    >
-      {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <BrainIcon className="h-4 w-4 text-climb-mint" />
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-          AI Intelligence
-        </h2>
-        <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-          {project.name}
-        </span>
-      </div>
+  // ─── Button State ──────────────────────────────────
+  const buttonLabel = isProcessing
+    ? "Processing..."
+    : hasInferenceData
+      ? "Inference Completed ✓"
+      : "Run AI Inference";
 
-      {/* Action Area */}
-      <div className="border-b border-border p-4 bg-muted/20">
+  const isButtonDisabled = isProcessing || startInference.isPending || hasInferenceData;
+
+  // ─── Dynamic Card Visibility ───────────────────────
+  const showRecon = hasInferenceData || getStageStatus(0, currentPhase) === "done";
+  const showDeposits = showRecon && (currentPhase === "completed" ||
+    getPhaseIndex(currentPhase) >= 1 ||
+    !!project.cachedContext?.nearestDeposits);
+  const showSummary = currentPhase === "completed" && !!project.cachedContext?.aiSummary;
+
+  // ─── Pipeline Stages ──────────────────────────────
+  const pipelineStages = useMemo(
+    () =>
+      PIPELINE_PHASES.map((phase, i) => ({
+        label: phase.label,
+        status: getStageStatus(i, currentPhase),
+      })),
+    [currentPhase]
+  );
+
+  // ─── Confidence Value ──────────────────────────────
+  const confidenceValue = project.cachedContext?.aiSummary?.confidence
+    ?? project.confidence
+    ?? 0;
+
+  return (
+    <div className={cn("flex flex-col h-full", className)}>
+      {/* ─── Scrollable Content ──────────────────────── */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 pb-48">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BrainIcon className="h-4 w-4 text-climb-mint" />
+            <h2 className="text-sm font-semibold text-foreground">Intelligence Panel</h2>
+          </div>
+          {isProcessing && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-climb-mint-subtle px-2.5 py-0.5 text-[10px] font-semibold text-climb-mint animate-ai-pulse">
+              <span className="h-1.5 w-1.5 rounded-full bg-climb-mint" />
+              LIVE
+            </span>
+          )}
+        </div>
+
+        {/* Run AI Button */}
         <CButton
           variant="solid"
           size="sm"
           className="w-full"
-          onClick={handleStartInference}
-          disabled={isProcessing}
+          onClick={handleRunInference}
+          disabled={isButtonDisabled}
         >
           {isProcessing ? (
             <>
-              <RotateIcon className="h-3.5 w-3.5 animate-spin" />
-              Processing...
+              <span className="h-3 w-3 rounded-full border-2 border-t-transparent border-white animate-spin" />
+              {buttonLabel}
+            </>
+          ) : hasInferenceData ? (
+            <>
+              <span className="text-xs">✓</span>
+              {buttonLabel}
             </>
           ) : (
             <>
               <BrainIcon className="h-3.5 w-3.5" />
-              Run AI Inference
+              {buttonLabel}
             </>
           )}
         </CButton>
-        <p className="mt-2 text-[10px] text-center text-muted-foreground leading-tight">
-          Trigger hybrid synthesis of GEE, RAG, and BigQuery data to generate 3D block model.
-        </p>
-      </div>
 
-      {/* Mineral Reconnaissance (NEW) */}
-      {project.cachedContext?.mineralRecon && (
-        <div className="border-b border-border p-4">
-          <InsightCard
-            icon={<LayersIcon className="h-4 w-4" />}
-            title="Mineral Reconnaissance"
-          >
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap gap-1.5">
-                {project.cachedContext.mineralRecon.predictedMinerals.map((mineral: string) => (
-                  <span
-                    key={mineral}
-                    className="rounded-md bg-climb-mint/20 px-2 py-0.5 font-mono text-[10px] font-bold text-climb-mint"
+        {/* ─── Empty State ──────────────────────────── */}
+        {!isProcessing && !hasInferenceData && (
+          <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+              <BrainIcon className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">No Intelligence Data</p>
+              <p className="mt-1 text-xs text-muted-foreground leading-relaxed max-w-[220px]">
+                Run AI Inference to analyze geological data, predict mineralization, and generate insights.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Processing Skeleton ──────────────────── */}
+        {isProcessing && !hasInferenceData && (
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className={cn(
+                  "rounded-xl border border-border/50 bg-card/50 p-5 animate-pulse",
+                  i > getPhaseIndex(currentPhase) && "opacity-30"
+                )}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="h-8 w-8 rounded-full bg-muted animate-shimmer" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-24 rounded bg-muted animate-shimmer" />
+                    <div className="h-2.5 w-full rounded bg-muted animate-shimmer" />
+                    <div className="h-2.5 w-3/4 rounded bg-muted animate-shimmer" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ─── Mineral Reconnaissance Card ──────────── */}
+        {showRecon && project.cachedContext?.mineralRecon && (
+          <div className="animate-fade-in-up">
+            <InsightCard
+              icon={<GlobeIcon className="h-4 w-4" />}
+              title="Mineral Reconnaissance"
+            >
+              <div className="space-y-3">
+                <p className="text-xs leading-relaxed">
+                  {project.cachedContext.mineralRecon.reasoning}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {project.cachedContext.mineralRecon.predictedMinerals.map(
+                    (mineral) => (
+                      <span
+                        key={mineral}
+                        className="rounded-full bg-climb-mint-subtle px-2 py-0.5 text-[10px] font-semibold text-climb-mint"
+                      >
+                        {mineral}
+                      </span>
+                    )
+                  )}
+                </div>
+                {project.cachedContext.mineralRecon.surfaceAnalysis && (
+                  <div className="mt-2 rounded-lg bg-muted/50 p-3">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Surface Analysis</p>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">NDVI</p>
+                        <p className="text-xs font-mono font-semibold text-foreground">
+                          {project.cachedContext.mineralRecon.surfaceAnalysis.ndvi.toFixed(3)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">Thermal</p>
+                        <p className="text-xs font-mono font-semibold text-foreground">
+                          {project.cachedContext.mineralRecon.surfaceAnalysis.thermal.toFixed(1)}°C
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">SWIR</p>
+                        <p className="text-xs font-mono font-semibold text-foreground">
+                          {project.cachedContext.mineralRecon.surfaceAnalysis.swir.toFixed(3)}
+                        </p>
+                      </div>
+                    </div>
+                    {project.cachedContext.mineralRecon.surfaceAnalysis.interpretation && (
+                      <p className="mt-2 text-[10px] text-muted-foreground italic leading-relaxed">
+                        {project.cachedContext.mineralRecon.surfaceAnalysis.interpretation}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </InsightCard>
+          </div>
+        )}
+
+        {/* ─── Nearest Known Deposits Card ─────────── */}
+        {showDeposits && project.cachedContext?.nearestDeposits && project.cachedContext.nearestDeposits.length > 0 && (
+          <div className="animate-fade-in-up" style={{ animationDelay: "150ms" }}>
+            <InsightCard
+              icon={<MapPinIcon className="h-4 w-4" />}
+              title="Nearest Known Deposits"
+            >
+              <div className="space-y-2">
+                {project.cachedContext.nearestDeposits.slice(0, 5).map((dep, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start justify-between gap-2 rounded-lg bg-muted/40 p-2.5"
                   >
-                    {mineral}
-                  </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-foreground truncate">
+                        {dep.name}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {dep.source}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-xs font-mono font-semibold text-foreground">
+                        {dep.distance}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {dep.grade}
+                      </p>
+                    </div>
+                  </div>
                 ))}
               </div>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {project.cachedContext.mineralRecon.reasoning}
-              </p>
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span>Confidence:</span>
-                <span className="font-mono font-semibold text-foreground">
-                  {(project.cachedContext.mineralRecon.confidence * 100).toFixed(0)}%
-                </span>
-              </div>
-            </div>
-          </InsightCard>
-        </div>
-      )}
+            </InsightCard>
+          </div>
+        )}
 
-      {/* AI Reasoning Card (RAG) -- dynamic from project.ragContext */}
-      <div className="border-b border-border p-4">
-        <InsightCard
-          icon={<FileTextIcon className="h-4 w-4" />}
-          title="Geological Reasoning (RAG)"
-        >
-          <div className="flex flex-col gap-2">
-            <p className="text-xs leading-relaxed">
-              {project.cachedContext?.mineralRecon?.reasoning || project.ragContext.shortText}
-            </p>
-            <button
-              onClick={() => setRagExpanded(!ragExpanded)}
-              className="flex items-center gap-1 text-[11px] font-medium text-climb-mint hover:underline"
+        {/* ─── AI Summary Card ────────────────────────── */}
+        {showSummary && project.cachedContext?.aiSummary && (
+          <div className="animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+            <InsightCard
+              icon={<FileTextIcon className="h-4 w-4" />}
+              title="AI Summary"
             >
-              {ragExpanded ? "Show less" : "Read more"}
-              <ChevronDownIcon
-                className={cn(
-                  "h-3 w-3 transition-transform duration-climb-fast",
-                  ragExpanded ? "rotate-180" : "",
-                )}
-              />
-            </button>
-            {ragExpanded && (
-              <div className="animate-fade-in-up">
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {project.cachedContext?.ragSummary?.long || project.ragContext.longText}
+              <div className="space-y-3">
+                <p className="text-xs leading-relaxed">
+                  {project.cachedContext.aiSummary.text}
                 </p>
-                <div className="mt-2 flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground">
-                    Source:
+                <div className="flex items-center justify-between rounded-lg bg-muted/40 p-2.5">
+                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    Final Model Confidence
                   </span>
-                  <button className="text-[10px] font-medium text-climb-mint hover:underline">
-                    {project.cachedContext?.ragSummary?.sourceRef || project.ragContext.sourceRef}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </InsightCard>
-      </div>
-
-      {/* AI Summary -- dynamic */}
-      <div className="border-b border-border p-4">
-        <InsightCard
-          icon={<BrainIcon className="h-4 w-4" />}
-          title="AI Summary"
-        >
-          <p className="text-xs leading-relaxed">{project.aiSummary}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <span className="rounded-md bg-muted px-2 py-0.5 font-mono text-[10px] font-medium text-foreground">
-              {project.baseGradeRange}
-            </span>
-            <span className="rounded-md bg-muted px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">
-              Depth: {project.depthRange}
-            </span>
-          </div>
-        </InsightCard>
-      </div>
-
-      {/* Confidence Score -- dynamic */}
-      <div className="flex items-center justify-center border-b border-border py-5">
-        <ConfidenceGauge value={project.confidence} label="Model Confidence" />
-      </div>
-
-      {/* Top 5 Nearest Deposits -- dynamic from project.nearestDeposits */}
-      <div className="p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <GlobeIcon className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-xs font-semibold text-foreground uppercase tracking-wider">
-            Nearest Known Deposits
-          </h3>
-        </div>
-        <div className="flex flex-col gap-2">
-          {project.nearestDeposits.map((dep, i) => (
-            <div
-              key={dep.name}
-              className="flex items-center gap-3 rounded-lg p-2.5 transition-colors duration-climb-fast hover:bg-muted/50"
-            >
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">
-                {i + 1}
-              </div>
-              <div className="flex flex-col min-w-0 flex-1">
-                <span className="text-xs font-medium text-foreground truncate">
-                  {dep.name}
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                    <MapPinIcon className="h-2.5 w-2.5" />
-                    {dep.distance}
-                  </span>
-                  <span className="font-mono text-[10px] font-semibold text-foreground">
-                    {dep.grade}
+                  <span className={cn(
+                    "text-sm font-mono font-bold",
+                    project.cachedContext.aiSummary.confidence >= 75 ? "text-climb-mint" :
+                      project.cachedContext.aiSummary.confidence >= 50 ? "text-climb-marginal" :
+                        "text-climb-drifting"
+                  )}>
+                    {project.cachedContext.aiSummary.confidence}%
                   </span>
                 </div>
               </div>
-              <span className="text-[9px] text-muted-foreground shrink-0">
-                {dep.source}
-              </span>
-            </div>
-          ))}
-        </div>
+            </InsightCard>
+          </div>
+        )}
+
+        {/* ─── Confidence Gauge ───────────────────────── */}
+        {hasInferenceData && (
+          <div className="flex justify-center py-2 animate-fade-in-up" style={{ animationDelay: "400ms" }}>
+            <ConfidenceGauge
+              value={confidenceValue}
+              label="Model Confidence"
+            />
+          </div>
+        )}
       </div>
 
-      {/* Inference Status */}
-      <div className="mt-auto border-t border-border p-4">
-        <h3 className="mb-3 text-xs font-semibold text-foreground uppercase tracking-wider">
-          Inference Pipeline
-        </h3>
-        <InferenceLoading
-          stages={[
-            { label: "Mineral Reconnaissance...", done: true },
-            { label: "Analyzing Satellite Imagery...", done: true },
-            { label: "Querying Geological Knowledge...", done: true },
-            { label: "Enriching with Kaggle Data...", done: true },
-            { label: "Synthesizing Voxel Grid...", done: true },
-          ]}
-        />
+      {/* ─── Frozen Pipeline at Bottom ────────────────── */}
+      <div className="shrink-0 border-t border-border bg-card/95 backdrop-blur-sm p-4 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <LayersIcon className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              Inference Pipeline
+            </span>
+          </div>
+          <span className={cn(
+            "text-[10px] font-semibold rounded-full px-2 py-0.5",
+            currentPhase === "idle" && "text-muted-foreground bg-muted",
+            currentPhase === "completed" && "text-climb-mint bg-climb-mint-subtle",
+            currentPhase !== "idle" && currentPhase !== "completed" && "text-climb-mint bg-climb-mint-subtle animate-ai-pulse"
+          )}>
+            {currentPhase === "idle" ? "WAITING" :
+              currentPhase === "completed" ? "COMPLETE" : "RUNNING"}
+          </span>
+        </div>
+        <InferenceLoading stages={pipelineStages} />
       </div>
-    </aside>
+    </div>
   );
 }

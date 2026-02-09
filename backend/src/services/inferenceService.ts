@@ -243,8 +243,9 @@ Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade val
       await ActivityService.log('inference', `Started inference pipeline for ${project.name}`, projectId, project.name);
 
       // =========================================
-      // PHASE 0: Mineral Reconnaissance (NEW)
+      // PHASE 0: Mineral Reconnaissance
       // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'mineral_recon' });
       const polygon = project.aoi.coordinates[0];
       const geojson = { type: 'Polygon', coordinates: [polygon] };
       const centerPt = turf.center(geojson as any);
@@ -265,6 +266,7 @@ Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade val
       // =========================================
       // PHASE 1: Gather SHARED Context (once)
       // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'gathering_context' });
       Logger.info(`[Pipeline] Phase 1: Gathering shared context for ${project.name}`);
 
       const [ragSnippets, nearestData] = await Promise.all([
@@ -285,6 +287,7 @@ Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade val
       // =========================================
       // PHASE 2: Voxelization & Batching
       // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'voxelization' });
       Logger.info(`[Pipeline] Phase 2: Generating spatial grid and batches`);
 
       const voxels = SpatialGridService.generateVoxels(polygon as [number, number][]);
@@ -296,6 +299,7 @@ Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade val
       // =========================================
       // PHASE 3: Parallel Batch Processing
       // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'batch_processing' });
       Logger.info(`[Pipeline] Phase 3: Starting ${batches.length} parallel inference jobs`);
 
       // Process all batches in parallel
@@ -310,6 +314,7 @@ Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade val
       // =========================================
       // PHASE 4: Merge Results
       // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'merging_results' });
       Logger.info(`[Pipeline] Phase 4: Merging results`);
 
       // Flatten all predictions
@@ -361,7 +366,64 @@ Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade val
       });
 
       // =========================================
-      // PHASE 5: Save Results
+      // PHASE 5: Generate AI Summary
+      // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'generating_summary' });
+      Logger.info(`[Pipeline] Phase 5: Generating AI summary`);
+
+      let aiSummaryText = '';
+      let finalConfidence = reconResult.confidence ? Math.round(reconResult.confidence * 100) : 50;
+
+      try {
+        const summaryPrompt = `
+System: You are an expert Mining Geologist AI. Provide a final comprehensive assessment.
+
+PROJECT: ${project.name}
+LOCATION: ${project.location}
+TARGET MINERALS: ${reconResult.minerals.join(', ')}
+
+MINERAL RECONNAISSANCE:
+- Predicted: ${reconResult.minerals.join(', ')}
+- Reasoning: ${reconResult.reasoning}
+- Nearest Occurrences: ${reconResult.nearestOccurrences?.join(', ') || 'None'}
+- Recon Confidence: ${(reconResult.confidence * 100).toFixed(0)}%
+
+GEOLOGICAL KNOWLEDGE (RAG):
+${ragSnippets.map((s: any) => s.content || s.text || JSON.stringify(s)).join('\n').substring(0, 1500)}
+
+NEAREST KNOWN DEPOSITS:
+${nearestData.slice(0, 5).map((d: any) => `- ${d.site_name}: ${d.distance_meters?.toFixed(0)}m away, Grade: ${d.grade || 'N/A'} ${d.unit || ''}`).join('\n')}
+
+SURFACE FEATURES:
+- NDVI: ${avgNdvi.toFixed(3)}, Thermal: ${avgThermal.toFixed(2)}C, SWIR: ${avgSwir.toFixed(3)}
+
+PROCESSING RESULTS:
+- ${voxels.length} voxels across ${batches.length} batches processed
+- Average uncertainty: ${(allPredictions.reduce((s: number, p: any) => s + (p.uncertainty || 0.5), 0) / allPredictions.length).toFixed(2)}
+
+INSTRUCTIONS:
+Return ONLY a valid JSON object with:
+{
+  "summary": "A 3-4 sentence comprehensive geological assessment covering mineralization potential, key evidence, grade expectations, and operational recommendations.",
+  "confidence": <number 0-100 representing final model confidence based on data quality, geological favorability, and prediction consistency>
+}
+`;
+
+        const summaryResult = await generativeModel.generateContent(summaryPrompt);
+        const summaryResponse = summaryResult.response;
+        const summaryText = (summaryResponse.candidates && summaryResponse.candidates[0].content.parts[0].text) || '';
+        const cleanJson = summaryText.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        aiSummaryText = parsed.summary || '';
+        finalConfidence = typeof parsed.confidence === 'number' ? Math.min(100, Math.max(0, Math.round(parsed.confidence))) : finalConfidence;
+        Logger.info(`[Pipeline] AI Summary generated. Confidence: ${finalConfidence}%`);
+      } catch (summaryErr) {
+        Logger.error('[Pipeline] AI Summary generation failed, using fallback', summaryErr);
+        aiSummaryText = `AI analysis of ${project.name} identified ${reconResult.minerals.join(', ')} mineralization potential based on ${voxels.length} voxel predictions across ${batches.length} sub-regions. Proximity to ${nearestData[0]?.site_name || 'known deposits'} and surface feature analysis support the assessment.`;
+      }
+
+      // =========================================
+      // PHASE 6: Save Results
       // =========================================
       project.inferenceResults = mergedVoxels;
       project.cachedContext = {
@@ -393,22 +455,30 @@ Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade val
           totalVoxels: voxels.length,
           batchCount: batches.length,
           voxelsPerBatch: batches[0]?.voxels.length || 0
+        },
+        aiSummary: {
+          text: aiSummaryText,
+          confidence: finalConfidence,
+          generatedAt: new Date()
         }
-      };
+      } as any;
 
       project.status = 'active';
+      project.confidence = finalConfidence;
+      project.pipelinePhase = 'completed' as any;
       project.lastInferenceAt = new Date();
       await project.save();
 
-      await ActivityService.log('inference', `Completed: ${voxels.length} voxels processed in ${batches.length} parallel jobs`, projectId, project.name);
+      await ActivityService.log('inference', `Completed: ${voxels.length} voxels processed in ${batches.length} parallel jobs. Confidence: ${finalConfidence}%`, projectId, project.name);
       Logger.job('InferencePipeline', 'DONE', `Successfully completed job for project: ${project.name}`, {
         voxelCount: mergedVoxels.length,
-        batchCount: batches.length
+        batchCount: batches.length,
+        confidence: finalConfidence
       });
 
     } catch (error) {
       Logger.error(`InferencePipeline failed for ${projectId}`, error);
-      await Project.findByIdAndUpdate(projectId, { status: 'active' });
+      await Project.findByIdAndUpdate(projectId, { status: 'active', pipelinePhase: 'idle' });
     }
   }
 

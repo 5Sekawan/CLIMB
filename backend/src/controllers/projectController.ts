@@ -232,7 +232,7 @@ export class ProjectController {
   static async getInferenceStatus(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const project = await Project.findById(id).select('status lastInferenceAt');
+      const project = await Project.findById(id).select('status lastInferenceAt pipelinePhase');
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
@@ -241,7 +241,8 @@ export class ProjectController {
       res.status(200).json({
         success: true,
         status: project.status,
-        lastInferenceAt: project.lastInferenceAt
+        lastInferenceAt: project.lastInferenceAt,
+        pipelinePhase: project.pipelinePhase || 'idle',
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
