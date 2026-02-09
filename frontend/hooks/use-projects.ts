@@ -156,6 +156,9 @@ export function useProjectDetail(id: string) {
       return transformedProject;
     },
     enabled: !!id,
+    retry: 2,
+    staleTime: 1000 * 30,
+    gcTime: 1000 * 60 * 5,
   });
 }
 

@@ -86,6 +86,7 @@ export function IntelligencePanel({ project, className }: IntelligencePanelProps
     if (prevStatus === "processing" && newStatus === "active") {
       setIsPolling(false);
       queryClient.invalidateQueries({ queryKey: ["project", project.id] });
+      queryClient.invalidateQueries({ queryKey: ["project-voxels", project.id] });
     }
   }, [inferenceStatus.data?.status, queryClient, project.id]);
 

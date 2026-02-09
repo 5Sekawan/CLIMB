@@ -70,9 +70,10 @@ function ExplorerStudio({
   // Compute hasVoxels: true if inference completed and voxels exist
   const hasVoxels = useMemo(() => {
     if (!project) return false;
-    const projectStatus = (project as any).status;
     const hasVoxelData = voxels && Array.isArray(voxels) && voxels.length > 0;
-    return projectStatus === 'completed' || hasVoxelData;
+    const pipelineCompleted = (project as any).pipelinePhase === 'completed';
+    const hasCachedData = !!(project as any).cachedContext?.mineralRecon;
+    return hasVoxelData || pipelineCompleted || hasCachedData;
   }, [project, voxels]);
 
   // State: Multi-select minerals (default to first mineral)
