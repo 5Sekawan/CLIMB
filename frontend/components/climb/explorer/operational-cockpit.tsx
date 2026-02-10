@@ -118,12 +118,6 @@ export function OperationalCockpit({
 
       {/* Spacer */}
       <div className="flex-1" />
-
-      {/* Dig-line Generator */}
-      <CButton variant="solid" size="md">
-        <PickaxeIcon className="h-4 w-4" />
-        Generate Dig-lines
-      </CButton>
     </div>
   );
 }

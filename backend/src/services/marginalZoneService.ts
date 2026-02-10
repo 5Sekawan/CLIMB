@@ -61,12 +61,14 @@ interface ValuedVoxel extends IVoxelData {
 
 // ─── Constants ───────────────────────────────────────────────
 
-const VOXEL_SIZE = 5;                     // 5m per side
+const VOXEL_SIZE = 5;                     // 5m per side (depth step)
 const VOXEL_VOLUME = VOXEL_SIZE ** 3;     // 125 m³
 const OZ_PER_GRAM = 1 / 31.1035;         // grams to troy ounces
 const COG_MARGINAL_BAND = 0.15;           // ±15% from COG = marginal
-const MIN_ZONE_VOXELS = 3;               // Min voxels to form a zone
-const SPATIAL_TOLERANCE = 0.0001;         // ~11m lat/lon tolerance for adjacency
+const MIN_ZONE_VOXELS = 1;               // Min voxels to form a zone
+const MAX_ZONES = 20;                     // Maximum number of zones to return
+
+// Grid spacing is auto-detected from actual voxel data (see detectGridSpacing)
 
 // ─── Service ─────────────────────────────────────────────────
 
@@ -96,6 +98,7 @@ export class MarginalZoneService {
         // 4. Build zone metadata, rank by NPV
         const zones = this.buildZones(rawZones, valuedVoxels, input)
             .sort((a, b) => b.stats.npv - a.stats.npv)
+            .slice(0, MAX_ZONES) // Limit to top zones
             .map((z, i) => ({ ...z, rank: i + 1, name: `Zone ${String.fromCharCode(65 + i)}` }));
 
         Logger.info(`[MarginalZone] Final zones: ${zones.length}, top NPV: $${zones[0]?.stats.npv.toLocaleString() || 0}`);
@@ -131,12 +134,8 @@ export class MarginalZoneService {
             }
 
             if (unit === 'oz') {
-                // Grade in g/t → revenue per ton = grade × OZ_PER_GRAM × price × recovery
-                // COG: totalCost = COG × OZ_PER_GRAM × price × recovery → COG = totalCost / (OZ_PER_GRAM × price × recovery)
                 cogs[mineral] = totalCostPerTon / (OZ_PER_GRAM * price * recoveryFactor);
             } else {
-                // Grade in % → revenue per ton = (grade/100) × price × recovery
-                // COG: totalCost = (COG/100) × price × recovery → COG = (totalCost × 100) / (price × recovery)
                 cogs[mineral] = (totalCostPerTon * 100) / (price * recoveryFactor);
             }
         }
@@ -166,24 +165,19 @@ export class MarginalZoneService {
                 const unit = (mineralUnits[mineral] || 'ton').toLowerCase();
                 const cog = cogPerMineral[mineral] || 0;
 
-                // Check grade vs COG
                 if (grade >= cog) {
                     gradeAboveCog = true;
                 } else if (grade >= cog * (1 - COG_MARGINAL_BAND)) {
                     anyMarginal = true;
                 }
 
-                // Revenue calculation
                 if (unit === 'oz') {
-                    // g/t → oz per voxel = grade × tonnage × OZ_PER_GRAM
                     totalRevenue += grade * tonnagePerVoxel * OZ_PER_GRAM * price * recoveryFactor;
                 } else {
-                    // % → tons of metal = (grade/100) × tonnage
                     totalRevenue += (grade / 100) * tonnagePerVoxel * price * recoveryFactor;
                 }
             }
 
-            // Cost depends on classification
             const isOre = gradeAboveCog;
             const voxelCost = isOre
                 ? (miningCost + processingCost) * tonnagePerVoxel
@@ -211,14 +205,57 @@ export class MarginalZoneService {
         });
     }
 
+    // ─── Grid Spacing Detection ──────────────────────────────
+
+    /**
+     * Auto-detect the actual lat/lon/z grid spacing from voxel data.
+     * The spatialGridService uses adaptive step sizes that depend on AOI area,
+     * so we must discover the real spacing rather than hardcode it.
+     */
+    private static detectGridSpacing(voxels: ValuedVoxel[]): { latStep: number; lonStep: number; zStep: number } {
+        // Collect unique, sorted lat/lon/z values
+        const latSet = new Set<number>();
+        const lonSet = new Set<number>();
+        const zSet = new Set<number>();
+
+        for (const v of voxels) {
+            latSet.add(v.lat);
+            lonSet.add(v.lon);
+            zSet.add(v.z);
+        }
+
+        const lats = [...latSet].sort((a, b) => a - b);
+        const lons = [...lonSet].sort((a, b) => a - b);
+        const zs = [...zSet].sort((a, b) => a - b);
+
+        // Find smallest non-zero delta (= grid step)
+        const findMinStep = (sorted: number[]): number => {
+            let minDelta = Infinity;
+            for (let i = 1; i < sorted.length; i++) {
+                const delta = sorted[i] - sorted[i - 1];
+                if (delta > 1e-10 && delta < minDelta) {
+                    minDelta = delta;
+                }
+            }
+            return minDelta === Infinity ? 0.0001 : minDelta; // fallback
+        };
+
+        const latStep = findMinStep(lats);
+        const lonStep = findMinStep(lons);
+        const zStep = zs.length > 1 ? findMinStep(zs) : VOXEL_SIZE;
+
+        return { latStep, lonStep, zStep };
+    }
+
     // ─── Step 3: Greedy Block Expansion ──────────────────────
 
     /**
      * Greedy approach:
-     * 1. Sort all ore voxels by netValue descending
-     * 2. Pick the highest unassigned ore voxel as a seed
-     * 3. Expand to adjacent voxels if they improve zone value or are needed for contiguity
-     * 4. Repeat until no unassigned ore voxels remain
+     * 1. Auto-detect grid spacing from voxel coordinates
+     * 2. Sort all ore voxels by netValue descending
+     * 3. Pick the highest unassigned ore voxel as a seed
+     * 4. BFS-expand to adjacent voxels if they improve zone value
+     * 5. Repeat until no unassigned ore voxels remain
      */
     private static greedyBlockExpansion(
         valuedVoxels: ValuedVoxel[],
@@ -227,27 +264,36 @@ export class MarginalZoneService {
         const zones: ValuedVoxel[][] = [];
         const assigned = new Set<string>();
 
-        // Build spatial index for fast adjacency lookups
-        const voxelMap = new Map<string, ValuedVoxel>();
-        valuedVoxels.forEach(v => voxelMap.set(v.id, v));
+        // Auto-detect grid spacing from the actual data
+        const gridSpacing = this.detectGridSpacing(valuedVoxels);
+        Logger.info(`[MarginalZone] Detected grid spacing — lat: ${gridSpacing.latStep.toFixed(8)}, lon: ${gridSpacing.lonStep.toFixed(8)}, z: ${gridSpacing.zStep}`);
 
         // Build coordinate-based adjacency index
-        // Key: "lat_lon_z" rounded to tolerance
+        // Use detected grid spacing for rounding (snapping to grid)
         const coordIndex = new Map<string, ValuedVoxel[]>();
         valuedVoxels.forEach(v => {
-            const key = this.coordKey(v);
+            const key = this.snapToGrid(v.lat, v.lon, v.z, gridSpacing);
             if (!coordIndex.has(key)) coordIndex.set(key, []);
             coordIndex.get(key)!.push(v);
         });
+
+        // Diagnostic: check how many unique grid cells exist
+        Logger.info(`[MarginalZone] Grid cells: ${coordIndex.size}, voxels: ${valuedVoxels.length}`);
 
         // Sort ore + marginal voxels by net value descending (seeds)
         const seeds = valuedVoxels
             .filter(v => v.classification === 'ore' || v.classification === 'marginal')
             .sort((a, b) => b.netValue - a.netValue);
 
+        // Diagnostic: check if first seed can find neighbors
+        if (seeds.length > 0) {
+            const testNeighbors = this.getAdjacentVoxels(seeds[0], coordIndex, gridSpacing);
+            Logger.info(`[MarginalZone] Seed[0] neighbors: ${testNeighbors.length} (id: ${seeds[0].id}, lat: ${seeds[0].lat}, lon: ${seeds[0].lon}, z: ${seeds[0].z})`);
+        }
+
         for (const seed of seeds) {
             if (assigned.has(seed.id)) continue;
-            if (seed.netValue <= 0) continue; // Skip negative-value seeds
+            if (seed.netValue <= 0) continue;
 
             // Start a new zone from this seed
             const zone: ValuedVoxel[] = [seed];
@@ -255,37 +301,31 @@ export class MarginalZoneService {
             let zoneNPV = seed.netValue;
 
             // BFS expansion
-            const frontier = this.getAdjacentVoxels(seed, valuedVoxels, coordIndex);
             const considered = new Set<string>([seed.id]);
+            const frontier = this.getAdjacentVoxels(seed, coordIndex, gridSpacing);
 
-            // Priority queue (sorted by potential contribution)
-            const candidates = frontier
+            let candidateQueue = frontier
                 .filter(v => !assigned.has(v.id) && !considered.has(v.id))
                 .sort((a, b) => b.netValue - a.netValue);
 
-            for (const candidate of candidates) {
-                considered.add(candidate.id);
-            }
+            for (const c of candidateQueue) considered.add(c.id);
 
-            let candidateQueue = [...candidates];
+            const tonnagePerVoxel = VOXEL_VOLUME * input.density;
+            const dilutionThreshold = -(input.miningCost * tonnagePerVoxel * 0.5);
 
             while (candidateQueue.length > 0) {
                 const candidate = candidateQueue.shift()!;
 
                 if (assigned.has(candidate.id)) continue;
 
-                // Greedy criterion: add if it improves or maintains zone NPV
-                // Also add marginal/waste if net value > -threshold (dilution tolerance)
-                const tonnagePerVoxel = VOXEL_VOLUME * input.density;
-                const dilutionThreshold = -(input.miningCost * tonnagePerVoxel * 0.5); // Accept up to 50% mining cost as dilution penalty
-
+                // Greedy criterion: add if net value > dilution threshold
                 if (candidate.netValue > dilutionThreshold) {
                     zone.push(candidate);
                     assigned.add(candidate.id);
                     zoneNPV += candidate.netValue;
 
-                    // Add new neighbors to frontier
-                    const newNeighbors = this.getAdjacentVoxels(candidate, valuedVoxels, coordIndex)
+                    // Expand frontier
+                    const newNeighbors = this.getAdjacentVoxels(candidate, coordIndex, gridSpacing)
                         .filter(v => !assigned.has(v.id) && !considered.has(v.id));
 
                     for (const n of newNeighbors) {
@@ -298,7 +338,7 @@ export class MarginalZoneService {
                 }
             }
 
-            // Only keep zones with positive NPV and minimum size
+            // Keep zones with positive NPV and minimum size
             if (zoneNPV > 0 && zone.length >= MIN_ZONE_VOXELS) {
                 zones.push(zone);
             }
@@ -308,32 +348,48 @@ export class MarginalZoneService {
     }
 
     /**
-     * Find spatially adjacent voxels (same x/y different z, or adjacent x/y same z)
+     * Create a grid-snapped key for a voxel position using detected spacing.
+     */
+    private static snapToGrid(
+        lat: number,
+        lon: number,
+        z: number,
+        spacing: { latStep: number; lonStep: number; zStep: number }
+    ): string {
+        const rLat = Math.round(lat / spacing.latStep) * spacing.latStep;
+        const rLon = Math.round(lon / spacing.lonStep) * spacing.lonStep;
+        const rZ = Math.round(z / spacing.zStep) * spacing.zStep;
+        // Use sufficient precision to distinguish neighboring grid cells
+        const precision = Math.max(8, -Math.floor(Math.log10(Math.min(spacing.latStep, spacing.lonStep))) + 2);
+        return `${rLat.toFixed(precision)}_${rLon.toFixed(precision)}_${rZ}`;
+    }
+
+    /**
+     * Find spatially adjacent voxels using 6-connectivity (±lat, ±lon, ±z).
+     * Uses auto-detected grid spacing rather than hardcoded values.
      */
     private static getAdjacentVoxels(
         voxel: ValuedVoxel,
-        _allVoxels: ValuedVoxel[],
-        coordIndex: Map<string, ValuedVoxel[]>
+        coordIndex: Map<string, ValuedVoxel[]>,
+        spacing: { latStep: number; lonStep: number; zStep: number }
     ): ValuedVoxel[] {
         const neighbors: ValuedVoxel[] = [];
-        const latStep = SPATIAL_TOLERANCE * 5; // Search radius
-        const lonStep = SPATIAL_TOLERANCE * 5;
 
-        // Check all adjacent positions (6-connected: ±x, ±y, ±z)
+        // 6-connected adjacency: ±lat, ±lon, ±z using actual grid spacing
         const offsets = [
-            { dLat: latStep, dLon: 0, dZ: 0 },
-            { dLat: -latStep, dLon: 0, dZ: 0 },
-            { dLat: 0, dLon: lonStep, dZ: 0 },
-            { dLat: 0, dLon: -lonStep, dZ: 0 },
-            { dLat: 0, dLon: 0, dZ: VOXEL_SIZE },
-            { dLat: 0, dLon: 0, dZ: -VOXEL_SIZE },
+            { dLat: spacing.latStep, dLon: 0, dZ: 0 },
+            { dLat: -spacing.latStep, dLon: 0, dZ: 0 },
+            { dLat: 0, dLon: spacing.lonStep, dZ: 0 },
+            { dLat: 0, dLon: -spacing.lonStep, dZ: 0 },
+            { dLat: 0, dLon: 0, dZ: spacing.zStep },
+            { dLat: 0, dLon: 0, dZ: -spacing.zStep },
         ];
 
         for (const offset of offsets) {
             const targetLat = voxel.lat + offset.dLat;
             const targetLon = voxel.lon + offset.dLon;
             const targetZ = voxel.z + offset.dZ;
-            const key = this.makeCoordKey(targetLat, targetLon, targetZ);
+            const key = this.snapToGrid(targetLat, targetLon, targetZ, spacing);
 
             const candidates = coordIndex.get(key);
             if (candidates) {
@@ -342,18 +398,6 @@ export class MarginalZoneService {
         }
 
         return neighbors;
-    }
-
-    private static coordKey(v: ValuedVoxel): string {
-        return this.makeCoordKey(v.lat, v.lon, v.z);
-    }
-
-    private static makeCoordKey(lat: number, lon: number, z: number): string {
-        // Round to spatial tolerance to group nearby voxels
-        const rLat = Math.round(lat / SPATIAL_TOLERANCE) * SPATIAL_TOLERANCE;
-        const rLon = Math.round(lon / SPATIAL_TOLERANCE) * SPATIAL_TOLERANCE;
-        const rZ = Math.round(z / VOXEL_SIZE) * VOXEL_SIZE;
-        return `${rLat.toFixed(5)}_${rLon.toFixed(5)}_${rZ}`;
     }
 
     // ─── Step 4: Build Zone Metadata ─────────────────────────

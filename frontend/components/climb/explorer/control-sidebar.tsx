@@ -133,8 +133,8 @@ export function ControlSidebar({
             const Icon = layer.icon;
             const isActive = activeLayerId === layer.id;
             const isDisabled =
-              (layer.id === "voxel" || layer.id === "combined") && !hasVoxels ||
-              (layer.id === "marginal-zone") && (!marginalZones || marginalZones.length === 0);
+              ((layer.id === "voxel" || layer.id === "combined") && !hasVoxels) ||
+              (layer.id === "marginal-zone" && (!hasVoxels || !marginalZones || marginalZones.length === 0));
 
             return (
               <button
