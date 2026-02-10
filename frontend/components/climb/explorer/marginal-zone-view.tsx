@@ -2,13 +2,11 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { cn } from "@/lib/utils";
-import { GlassPanel } from "@/components/climb/ui";
 import { Map, useMap } from '@vis.gl/react-google-maps';
 import { GoogleMapsOverlay } from '@deck.gl/google-maps';
 import { ScatterplotLayer, GeoJsonLayer } from '@deck.gl/layers';
 import { useProjectVoxels } from "@/hooks/use-projects";
 import { IMarginalZone } from "@/lib/mock-data";
-import { ChartUpIcon } from "@/components/climb/icons";
 
 // ─── Constants ───────────────────────────────────────────────
 const MINERAL_GRADE_KEYS: Record<string, string> = {
@@ -18,11 +16,10 @@ const MINERAL_GRADE_KEYS: Record<string, string> = {
     Zn: 'zn_grade', Cr: 'cr_grade', Ta: 'ta_grade',
 };
 
-// Classification colors
-const ORE_COLOR: [number, number, number, number] = [16, 185, 129, 220];     // Green
-const MARGINAL_COLOR: [number, number, number, number] = [251, 191, 36, 200]; // Amber
-const WASTE_COLOR: [number, number, number, number] = [239, 68, 68, 160];     // Red
-const BOUNDARY_COLOR: [number, number, number, number] = [16, 185, 129, 80];  // Green translucent
+// Classification colors — RGBA with strong alpha
+const ORE_COLOR: [number, number, number, number] = [16, 185, 129, 230];
+const MARGINAL_COLOR: [number, number, number, number] = [251, 191, 36, 210];
+const WASTE_COLOR: [number, number, number, number] = [239, 68, 68, 180];
 
 // ─── Types ───────────────────────────────────────────────────
 interface MarginalZoneViewProps {
@@ -37,7 +34,7 @@ interface MarginalZoneViewProps {
     cogPerMineral?: Record<string, number>;
 }
 
-// ─── Deck Overlay ────────────────────────────────────────────
+// ─── Deck Overlay (matches CombinedView pattern exactly) ─────
 function DeckOverlay({
     layers,
     selectedMinerals,
@@ -156,10 +153,9 @@ export function MarginalZoneView({
 }: MarginalZoneViewProps) {
     const [localDepth, setLocalDepth] = useState(50);
 
-    // Parse center
+    // Parse center — prefer zone center, fallback to project center (same as CombinedView)
     const defaultCenter = { lat: -1.523, lng: 116.842 };
     const mapCenter = useMemo(() => {
-        // Prefer zone center
         if (zone.centerLat && zone.centerLon) {
             return { lat: zone.centerLat, lng: zone.centerLon };
         }
@@ -171,10 +167,10 @@ export function MarginalZoneView({
         return defaultCenter;
     }, [center, zone.centerLat, zone.centerLon]);
 
-    // Fetch all voxels
-    const { data: allVoxels } = useProjectVoxels(projectId);
+    // Fetch all project voxels (same hook as CombinedView)
+    const { data: allVoxels, isLoading } = useProjectVoxels(projectId);
 
-    // Filter to zone voxels only
+    // Filter to zone voxels only + apply depth filter
     const zoneVoxelIds = useMemo(() => new Set(zone.voxelIds), [zone.voxelIds]);
 
     const displayVoxels = useMemo(() => {
@@ -212,12 +208,12 @@ export function MarginalZoneView({
         };
     }, [zone]);
 
-    // Build Deck.gl layers
+    // Build Deck.gl layers — following CombinedView pattern exactly
     const deckLayers = useMemo(() => {
         const layers: any[] = [];
 
-        // AOI polygon (dim)
-        if (aoi?.geometry?.coordinates) {
+        // AOI polygon (dim outline, same check as CombinedView)
+        if (aoi) {
             layers.push(
                 new GeoJsonLayer({
                     id: 'zone-aoi',
@@ -225,12 +221,12 @@ export function MarginalZoneView({
                     stroked: true,
                     filled: false,
                     lineWidthMinPixels: 1,
-                    getLineColor: [100, 100, 100, 80],
+                    getLineColor: [100, 100, 100, 100],
                 })
             );
         }
 
-        // Zone boundary
+        // Zone boundary (bright green dashed)
         layers.push(
             new GeoJsonLayer({
                 id: 'zone-boundary',
@@ -238,24 +234,20 @@ export function MarginalZoneView({
                 stroked: true,
                 filled: true,
                 lineWidthMinPixels: 2,
-                getLineColor: [16, 185, 129, 180],
-                getFillColor: BOUNDARY_COLOR,
-                getDashArray: [8, 4],
-                dashJustified: true,
-                extensions: [],
+                getLineColor: [16, 185, 129, 200],
+                getFillColor: [16, 185, 129, 25],
             })
         );
 
-        // Zone voxels
+        // Zone voxels — using SAME position accessor as CombinedView: [d.x, d.y]
+        // Because spatialGridService stores lon in .x and lat in .y
         if (displayVoxels.length > 0) {
             layers.push(
                 new ScatterplotLayer({
                     id: 'zone-voxels',
                     data: displayVoxels,
-                    getPosition: (d: any) => [d.lon || d.x, d.lat || d.y],
-                    getRadius: 35,
-                    radiusMinPixels: 4,
-                    radiusMaxPixels: 25,
+                    pickable: true,
+                    getPosition: (d: any) => [d.x, d.y],  // Same as CombinedView
                     getFillColor: (d: any) => {
                         switch (d.__classification) {
                             case 'ore': return ORE_COLOR;
@@ -264,10 +256,12 @@ export function MarginalZoneView({
                             default: return WASTE_COLOR;
                         }
                     },
-                    pickable: true,
-                    opacity: opacityValue,
+                    getRadius: 60,           // Same as CombinedView
+                    radiusMinPixels: 8,      // Same as CombinedView
+                    radiusMaxPixels: 35,     // Same as CombinedView
+                    stroked: false,
                     updateTriggers: {
-                        getFillColor: [selectedMinerals, cogPerMineral],
+                        getFillColor: [selectedMinerals, cogPerMineral, opacityValue],
                     },
                 })
             );
@@ -279,15 +273,19 @@ export function MarginalZoneView({
     const { stats } = zone;
 
     return (
-        <div className={cn("relative h-full w-full", className)}>
+        <div className={cn("relative h-full w-full overflow-hidden", className)}>
+            {/* Map — matching CombinedView props exactly */}
             <Map
-                mapId="marginal-zone-map"
                 defaultCenter={mapCenter}
                 defaultZoom={15}
-                gestureHandling="greedy"
+                center={mapCenter}
+                mapId="climb-map-satellite"
                 disableDefaultUI={true}
-                mapTypeId="satellite"
+                gestureHandling={'greedy'}
                 className="h-full w-full"
+                mapTypeId="satellite"
+                tilt={0}
+                heading={0}
             >
                 <DeckOverlay
                     layers={deckLayers}
@@ -296,48 +294,68 @@ export function MarginalZoneView({
                 />
             </Map>
 
-            {/* Zone Stats Overlay (top-right) */}
-            <div className="absolute right-4 top-4 w-72 space-y-2">
-                <GlassPanel className="!p-0 overflow-hidden">
-                    {/* Zone header */}
-                    <div className="flex items-center gap-2 border-b border-white/10 bg-gradient-to-r from-emerald-500/20 to-amber-500/10 px-4 py-3">
-                        <ChartUpIcon className="h-4 w-4 text-emerald-400" />
-                        <span className="text-sm font-semibold text-white">{zone.name}</span>
-                        <span className="ml-auto rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-medium text-emerald-300">
-                            Rank #{zone.rank}
+            {/* ─── Project Info Overlay (top-left) ─────────── */}
+            <div className="absolute top-3 left-3 rounded-md bg-black/60 px-3 py-1.5 backdrop-blur-sm pointer-events-none z-10">
+                <span className="text-xs font-semibold text-white/90 uppercase tracking-wider">
+                    {projectName} •&nbsp;
+                </span>
+                <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wider">
+                    {zone.name}
+                </span>
+            </div>
+
+            {/* ─── Zone Stats Panel (top-right, high contrast) ── */}
+            <div className="absolute right-3 top-3 z-20 pointer-events-auto">
+                <div className="rounded-xl bg-black/80 border border-white/10 backdrop-blur-md shadow-2xl w-72 overflow-hidden">
+                    {/* Zone Header */}
+                    <div className="flex items-center gap-2 border-b border-white/10 bg-emerald-500/15 px-4 py-2.5">
+                        <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-sm font-bold text-white">{zone.name}</span>
+                        <span className="ml-auto rounded-full bg-emerald-500/25 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                            RANK #{zone.rank}
                         </span>
                     </div>
 
-                    {/* Stats grid */}
+                    {/* Stats Grid */}
                     <div className="grid grid-cols-2 gap-px bg-white/5">
-                        <StatItem label="NPV" value={formatCurrency(stats.npv)} accent={stats.npv > 0 ? 'green' : 'red'} />
-                        <StatItem label="Total Tonnage" value={formatTonnage(stats.totalTonnage)} />
-                        <StatItem label="Ore Tonnage" value={formatTonnage(stats.oreTonnage)} accent="green" />
-                        <StatItem label="Waste Tonnage" value={formatTonnage(stats.wasteTonnage)} accent="red" />
-                        <StatItem label="Revenue" value={formatCurrency(stats.totalRevenue)} />
-                        <StatItem label="Cost" value={formatCurrency(stats.totalCost)} />
-                        <StatItem label="Dilution" value={`${(stats.dilutionRatio * 100).toFixed(1)}%`} accent={stats.dilutionRatio > 0.3 ? 'red' : 'green'} />
-                        <StatItem label="Blocks" value={`${stats.oreCount} ore / ${stats.wasteCount + stats.marginalCount} other`} />
+                        <StatCell label="NPV" value={formatCurrency(stats.npv)} accent={stats.npv > 0 ? 'green' : 'red'} />
+                        <StatCell label="Total Tonnage" value={formatTonnage(stats.totalTonnage)} />
+                        <StatCell label="Ore Tonnage" value={formatTonnage(stats.oreTonnage)} accent="green" />
+                        <StatCell label="Waste Tonnage" value={formatTonnage(stats.wasteTonnage)} accent="red" />
+                        <StatCell label="Revenue" value={formatCurrency(stats.totalRevenue)} accent="green" />
+                        <StatCell label="Cost" value={formatCurrency(stats.totalCost)} />
+                        <StatCell label="Dilution" value={`${(stats.dilutionRatio * 100).toFixed(1)}%`} accent={stats.dilutionRatio > 0.3 ? 'red' : 'green'} />
+                        <StatCell label="Blocks" value={`${stats.oreCount} ore / ${stats.wasteCount + stats.marginalCount} other`} />
                     </div>
 
-                    {/* Avg grades */}
-                    <div className="border-t border-white/10 px-4 py-2">
-                        <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-white/50">Avg Grades</div>
-                        <div className="flex flex-wrap gap-2">
+                    {/* Avg Grades */}
+                    <div className="border-t border-white/10 px-4 py-2.5">
+                        <div className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-white/50">Avg Grades</div>
+                        <div className="flex flex-wrap gap-1.5">
                             {Object.entries(stats.avgGrades).map(([mineral, grade]) => (
-                                <span key={mineral} className="rounded bg-white/10 px-2 py-0.5 text-xs text-white/80">
+                                <span key={mineral} className="rounded bg-white/10 border border-white/5 px-2 py-0.5 text-[11px] font-mono text-white/90">
                                     {mineral}: {(grade as number).toFixed(4)}
                                 </span>
                             ))}
                         </div>
                     </div>
-                </GlassPanel>
+                </div>
             </div>
 
-            {/* Depth slider (bottom-left) */}
-            <div className="absolute bottom-4 left-4">
-                <GlassPanel className="flex items-center gap-3 !px-4 !py-3">
-                    <span className="text-xs text-white/60 font-medium min-w-[32px]">0m</span>
+            {/* ─── Depth Control + Legend (bottom-left, same style as CombinedView) */}
+            <div className="absolute bottom-4 left-4 z-20 pointer-events-auto">
+                <div className="rounded-xl bg-black/70 border border-white/10 backdrop-blur-md px-4 py-3 shadow-xl min-w-[260px]">
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-semibold text-white/80 uppercase tracking-wider">
+                            Zone Depth
+                        </span>
+                        <span className="font-mono text-xs font-bold text-emerald-400">
+                            {localDepth}m
+                        </span>
+                    </div>
+
+                    {/* Slider */}
                     <input
                         type="range"
                         min={0}
@@ -345,47 +363,64 @@ export function MarginalZoneView({
                         step={1}
                         value={localDepth}
                         onChange={(e) => setLocalDepth(Number(e.target.value))}
-                        className="w-40 accent-emerald-400"
+                        className="w-full h-1.5 rounded-full appearance-none cursor-pointer
+                            [&::-webkit-slider-thumb]:appearance-none
+                            [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4
+                            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-400
+                            [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer
+                            [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white/30
+                            bg-gradient-to-r from-white/20 to-white/40"
                     />
-                    <span className="text-xs text-white/80 font-semibold min-w-[40px]">{localDepth}m</span>
-                </GlassPanel>
+
+                    <div className="flex justify-between mt-1 text-[9px] text-white/40 font-mono">
+                        <span>0m</span>
+                        <span>50m</span>
+                    </div>
+
+                    {/* Voxel count info */}
+                    <div className="mt-2 pt-2 border-t border-white/10 text-[10px] text-white/50">
+                        {isLoading ? (
+                            <span className="text-emerald-400 animate-pulse">Loading voxels…</span>
+                        ) : (
+                            <span>
+                                <span className="font-bold text-emerald-300">{displayVoxels.length}</span>
+                                <span> / {zone.voxelIds.length} zone blocks visible</span>
+                            </span>
+                        )}
+                    </div>
+                </div>
             </div>
 
-            {/* Legend (bottom-right) */}
-            <div className="absolute bottom-4 right-4">
-                <GlassPanel className="!px-3 !py-2">
+            {/* ─── Legend (bottom-right) ──────────────────── */}
+            <div className="absolute bottom-4 right-4 z-10 pointer-events-auto">
+                <div className="rounded-xl bg-black/70 border border-white/10 backdrop-blur-md px-3 py-2.5 shadow-xl">
                     <div className="flex items-center gap-3 text-xs">
-                        <span className="flex items-center gap-1">
-                            <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
-                            <span className="text-white/70">Ore</span>
+                        <span className="flex items-center gap-1.5">
+                            <span className="inline-block h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
+                            <span className="text-white/80 font-medium">Ore</span>
                         </span>
-                        <span className="flex items-center gap-1">
-                            <span className="inline-block h-3 w-3 rounded-full bg-amber-400" />
-                            <span className="text-white/70">Marginal</span>
+                        <span className="flex items-center gap-1.5">
+                            <span className="inline-block h-3 w-3 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]" />
+                            <span className="text-white/80 font-medium">Marginal</span>
                         </span>
-                        <span className="flex items-center gap-1">
-                            <span className="inline-block h-3 w-3 rounded-full bg-red-400" />
-                            <span className="text-white/70">Waste</span>
+                        <span className="flex items-center gap-1.5">
+                            <span className="inline-block h-3 w-3 rounded-full bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
+                            <span className="text-white/80 font-medium">Waste</span>
                         </span>
                     </div>
-                </GlassPanel>
+                </div>
             </div>
 
-            {/* Zone voxel count badge */}
-            <div className="absolute left-4 top-4">
-                <GlassPanel className="!px-3 !py-2">
-                    <span className="text-xs text-white/80">
-                        <span className="font-semibold text-emerald-300">{displayVoxels.length}</span>
-                        <span className="text-white/50"> / {zone.voxelIds.length} blocks visible</span>
-                    </span>
-                </GlassPanel>
+            {/* Coordinates */}
+            <div className="absolute bottom-3 left-[300px] rounded-md bg-black/50 px-2.5 py-1 font-mono text-[10px] text-white/60 backdrop-blur-sm pointer-events-none z-10">
+                {center}
             </div>
         </div>
     );
 }
 
-// ─── Stat Item ───────────────────────────────────────────────
-function StatItem({
+// ─── Stat Cell (high-contrast dark theme) ────────────────────
+function StatCell({
     label,
     value,
     accent,
@@ -394,15 +429,16 @@ function StatItem({
     value: string;
     accent?: 'green' | 'red';
 }) {
-    const accentClasses = {
-        green: 'text-emerald-300',
-        red: 'text-red-400',
-    };
+    const accentClass = accent === 'green'
+        ? 'text-emerald-400'
+        : accent === 'red'
+            ? 'text-red-400'
+            : 'text-white/90';
 
     return (
-        <div className="px-3 py-2 bg-white/[0.02]">
-            <div className="text-[10px] text-white/40 uppercase tracking-wider">{label}</div>
-            <div className={cn("text-sm font-semibold text-white/90 mt-0.5", accent && accentClasses[accent])}>
+        <div className="px-3 py-2.5 bg-black/30">
+            <div className="text-[9px] text-white/50 uppercase tracking-wider font-semibold">{label}</div>
+            <div className={cn("text-sm font-bold mt-0.5", accentClass)}>
                 {value}
             </div>
         </div>
