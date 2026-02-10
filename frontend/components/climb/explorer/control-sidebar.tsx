@@ -15,7 +15,7 @@ import {
   LockIcon,
 } from "@/components/climb/icons";
 import { useState } from "react";
-import type { ProjectDetail } from "@/lib/mock-data";
+import type { ProjectDetail, IMarginalZone } from "@/lib/mock-data";
 
 interface ControlSidebarProps {
   project: ProjectDetail;
@@ -28,6 +28,9 @@ interface ControlSidebarProps {
   activeLayerId: string;
   onLayerChange: (id: string) => void;
   hasVoxels: boolean;
+  marginalZones?: IMarginalZone[];
+  selectedZone?: IMarginalZone | null;
+  onZoneSelect?: (zone: IMarginalZone) => void;
   className?: string;
 }
 
@@ -35,6 +38,7 @@ const layers = [
   { id: "satellite", label: "Satellite Imagery", icon: SatelliteIcon },
   { id: "combined", label: "Combined View", icon: LayersIcon },
   { id: "voxel", label: "Voxel Model", icon: VoxelIcon },
+  { id: "marginal-zone", label: "Marginal Zones", icon: LayersIcon },
 ];
 
 export function ControlSidebar({
@@ -48,11 +52,15 @@ export function ControlSidebar({
   activeLayerId,
   onLayerChange,
   hasVoxels,
+  marginalZones,
+  selectedZone,
+  onZoneSelect,
   className,
 }: ControlSidebarProps) {
   const [sectionsOpen, setSectionsOpen] = useState<Record<string, boolean>>({
     meta: true,
     layers: true,
+    zones: false,
     minerals: true,
     depth: true,
     opacity: true,
@@ -124,7 +132,9 @@ export function ControlSidebar({
           {layers.map((layer) => {
             const Icon = layer.icon;
             const isActive = activeLayerId === layer.id;
-            const isDisabled = (layer.id === "voxel" || layer.id === "combined") && !hasVoxels;
+            const isDisabled =
+              (layer.id === "voxel" || layer.id === "combined") && !hasVoxels ||
+              (layer.id === "marginal-zone") && (!marginalZones || marginalZones.length === 0);
 
             return (
               <button
@@ -161,6 +171,64 @@ export function ControlSidebar({
             </p>
           )}
         </div>
+      </SidebarSection>
+
+      {/* Marginal Zones Section */}
+      <SidebarSection
+        title="Marginal Zones"
+        isOpen={sectionsOpen.zones}
+        onToggle={() => toggleSection("zones")}
+        disabled={!marginalZones || marginalZones.length === 0}
+      >
+        {marginalZones && marginalZones.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            {marginalZones.map((zone) => {
+              const isSelected = selectedZone?.id === zone.id;
+              return (
+                <button
+                  key={zone.id}
+                  onClick={() => onZoneSelect?.(zone)}
+                  className={cn(
+                    "flex flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-all duration-climb-fast",
+                    isSelected
+                      ? "bg-emerald-500/10 ring-1 ring-emerald-500/30 text-foreground"
+                      : "text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={cn(
+                      "text-xs font-semibold",
+                      isSelected ? "text-emerald-300" : ""
+                    )}>
+                      {zone.name}
+                    </span>
+                    <span className="text-[10px] font-medium text-emerald-400/80">
+                      #{zone.rank}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className={cn(zone.stats.npv > 0 ? "text-emerald-400" : "text-red-400")}>
+                      NPV: ${zone.stats.npv >= 1000 ? `${(zone.stats.npv / 1000).toFixed(1)}K` : zone.stats.npv.toFixed(0)}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {zone.stats.totalTonnage >= 1000 ? `${(zone.stats.totalTonnage / 1000).toFixed(1)}Kt` : `${zone.stats.totalTonnage.toFixed(0)}t`}
+                    </span>
+                    <span className="text-amber-400/70">
+                      {(zone.stats.dilutionRatio * 100).toFixed(0)}% dilution
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <LockIcon className="h-5 w-5 text-muted-foreground/50" />
+            <p className="text-[10px] text-muted-foreground">
+              Generate Dig Lines to see zones
+            </p>
+          </div>
+        )}
       </SidebarSection>
 
       {/* Mineral Selection -- multi-select checkboxes */}

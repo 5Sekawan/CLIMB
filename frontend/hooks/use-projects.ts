@@ -248,3 +248,32 @@ export function useUpdateProjectStatus() {
     },
   });
 }
+
+// ─── Marginal Zone Hooks ─────────────────────────────────────
+
+export function useGenerateMarginalZones() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, params }: { id: string; params: any }) => {
+      const { data } = await api.post(`/projects/${id}/marginal-zones/generate`, params);
+      return data;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['project', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['marginal-zones', variables.id] });
+    },
+  });
+}
+
+export function useMarginalZones(projectId: string) {
+  return useQuery({
+    queryKey: ['marginal-zones', projectId],
+    queryFn: async () => {
+      const { data } = await api.get(`/projects/${projectId}/marginal-zones`);
+      return data.data;
+    },
+    enabled: !!projectId,
+    staleTime: 1000 * 60 * 5, // 5 min
+  });
+}

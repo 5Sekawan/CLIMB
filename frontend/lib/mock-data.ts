@@ -60,6 +60,52 @@ export interface ProjectDetail extends ProjectSummary {
       generatedAt?: string;
     };
   };
+  marginalZones?: IMarginalZoneResult;
+}
+
+// ─── Marginal Zone Types ─────────────────────────────────────
+export interface IMarginalZoneStats {
+  npv: number;
+  totalTonnage: number;
+  oreTonnage: number;
+  wasteTonnage: number;
+  avgGrades: Record<string, number>;
+  totalRevenue: number;
+  totalCost: number;
+  dilutionRatio: number;
+  oreCount: number;
+  wasteCount: number;
+  marginalCount: number;
+}
+
+export interface IMarginalZone {
+  id: string;
+  name: string;
+  rank: number;
+  voxelIds: string[];
+  boundingBox: {
+    minLat: number; maxLat: number;
+    minLon: number; maxLon: number;
+    minDepth: number; maxDepth: number;
+  };
+  centerLat: number;
+  centerLon: number;
+  stats: IMarginalZoneStats;
+}
+
+export interface IMarginalZoneResult {
+  zones: IMarginalZone[];
+  economicParams: {
+    selectedMinerals: string[];
+    mineralPrices: Record<string, number>;
+    mineralUnits: Record<string, string>;
+    miningCost: number;
+    processingCost: number;
+    recoveryFactor: number;
+    density: number;
+  };
+  cogPerMineral: Record<string, number>;
+  generatedAt: string;
 }
 
 export interface MineralLayer {

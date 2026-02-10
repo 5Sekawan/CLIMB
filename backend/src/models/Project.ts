@@ -68,6 +68,50 @@ export interface ICachedContext {
   };
 }
 
+export interface IMarginalZoneStats {
+  npv: number;
+  totalTonnage: number;
+  oreTonnage: number;
+  wasteTonnage: number;
+  avgGrades: Record<string, number>;
+  totalRevenue: number;
+  totalCost: number;
+  dilutionRatio: number;
+  oreCount: number;
+  wasteCount: number;
+  marginalCount: number;
+}
+
+export interface IMarginalZone {
+  id: string;
+  name: string;
+  rank: number;
+  voxelIds: string[];
+  boundingBox: {
+    minLat: number; maxLat: number;
+    minLon: number; maxLon: number;
+    minDepth: number; maxDepth: number;
+  };
+  centerLat: number;
+  centerLon: number;
+  stats: IMarginalZoneStats;
+}
+
+export interface IMarginalZoneResult {
+  zones: IMarginalZone[];
+  economicParams: {
+    selectedMinerals: string[];
+    mineralPrices: Record<string, number>;
+    mineralUnits: Record<string, string>;
+    miningCost: number;
+    processingCost: number;
+    recoveryFactor: number;
+    density: number;
+  };
+  cogPerMineral: Record<string, number>;
+  generatedAt: Date;
+}
+
 export interface IEconomicParams {
   cogDefault: number;
   baseTonnage: number; // Estimated from initial inference
@@ -123,6 +167,9 @@ export interface IProject extends Document {
 
   // --- Heavy Data ---
   inferenceResults?: IVoxelData[]; // Hidden by default
+
+  // --- Marginal Zones ---
+  marginalZones?: IMarginalZoneResult;
 
   // Metadata
   createdAt: Date;
@@ -275,6 +322,11 @@ const ProjectSchema = new Schema<IProject>({
   inferenceResults: {
     type: [VoxelSchema],
     select: false
+  },
+
+  marginalZones: {
+    type: Schema.Types.Mixed,
+    default: null
   }
 
 }, {

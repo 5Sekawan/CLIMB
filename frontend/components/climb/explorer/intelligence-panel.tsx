@@ -13,6 +13,7 @@ import {
   MapPinIcon,
   LayersIcon,
   FileTextIcon,
+  PickaxeIcon,
 } from "@/components/climb/icons";
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { ProjectDetail } from "@/lib/mock-data";
@@ -50,10 +51,11 @@ function getStageStatus(
 // ─── Component ───────────────────────────────────────────────
 interface IntelligencePanelProps {
   project: ProjectDetail;
+  onGenerateDigLines?: () => void;
   className?: string;
 }
 
-export function IntelligencePanel({ project, className }: IntelligencePanelProps) {
+export function IntelligencePanel({ project, onGenerateDigLines, className }: IntelligencePanelProps) {
   const queryClient = useQueryClient();
   const startInference = useStartInference();
   const [isPolling, setIsPolling] = useState(project.status === "processing");
@@ -176,6 +178,27 @@ export function IntelligencePanel({ project, className }: IntelligencePanelProps
             <>
               <BrainIcon className="h-3.5 w-3.5" />
               {buttonLabel}
+            </>
+          )}
+        </CButton>
+
+        {/* Generate Dig Lines Button */}
+        <CButton
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={onGenerateDigLines}
+          disabled={!hasInferenceData || isProcessing}
+        >
+          {hasInferenceData ? (
+            <>
+              <PickaxeIcon className="h-3.5 w-3.5" />
+              Generate Dig Lines
+            </>
+          ) : (
+            <>
+              <PickaxeIcon className="h-3.5 w-3.5 opacity-50" />
+              <span className="opacity-50">Generate Dig Lines</span>
             </>
           )}
         </CButton>

@@ -15,6 +15,10 @@ router.post('/:id/inference/start', protect, ProjectController.startInference);
 router.get('/:id/status', protect, ProjectController.getInferenceStatus);
 router.patch('/:id/status', protect, ProjectController.updateProjectStatus);
 
+// Marginal Zones
+router.post('/:id/marginal-zones/generate', protect, ProjectController.generateMarginalZones);
+router.get('/:id/marginal-zones', protect, ProjectController.getMarginalZones);
+
 // Legacy / Specialized Operations
 router.post('/predict', ProjectController.createInference);
 router.post('/simulate', ProjectController.simulateParameters);
