@@ -1,5 +1,5 @@
 import { bigquery, dataProjectId } from '../config/gcp';
-import pdf from 'pdf-parse';
+const pdf = require('pdf-parse');
 import dotenv from 'dotenv';
 import { DocumentModel } from '../models/Document';
 import { Logger } from '../utils/logger';

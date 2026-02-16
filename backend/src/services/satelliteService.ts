@@ -102,7 +102,7 @@ export class SatelliteService {
     const stats = thermal.reduceRegion({
       reducer: ee.Reducer.mean(),
       geometry: eeGeom,
-      scale: 30,
+      scale: 50, // Optimized for speed
       maxPixels: 1e9
     });
 
@@ -140,7 +140,7 @@ export class SatelliteService {
     const stats = swirRatio.reduceRegion({
       reducer: ee.Reducer.mean(),
       geometry: eeGeom,
-      scale: 20, // Slightly coarser scale for regional alteration
+      scale: 50, // Optimized for speed
       maxPixels: 1e9
     });
 

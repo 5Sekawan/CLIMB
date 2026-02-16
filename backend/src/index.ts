@@ -69,6 +69,10 @@ app.use('/api/projects/:id/inference/start', heavyLimiter);
 app.use('/api/knowledge/upload', heavyLimiter);
 app.use('/api/reconciliation/upload', heavyLimiter);
 
+// Static Storage for Voxel Data
+const STORAGE_DIR = process.env.STORAGE_DIR || '/app/storage';
+app.use('/api/storage', express.static(STORAGE_DIR));
+
 // Routes
 app.use('/api/projects', projectRoutes);
 app.use('/api/knowledge', knowledgeRoutes);

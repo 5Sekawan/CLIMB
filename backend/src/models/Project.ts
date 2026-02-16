@@ -166,7 +166,8 @@ export interface IProject extends Document {
   };
 
   // --- Heavy Data ---
-  inferenceResults?: IVoxelData[]; // Hidden by default
+  voxelDataUrl?: string; // URL to JSON file (GCS/Local)
+  inferenceResults?: IVoxelData[]; // Deprecated: Kept for legacy support
 
   // --- Marginal Zones ---
   marginalZones?: IMarginalZoneResult;
@@ -319,6 +320,8 @@ const ProjectSchema = new Schema<IProject>({
     lastReconciliationAt: Date
   },
 
+  voxelDataUrl: { type: String }, // Path to storage (e.g., /storage/project-id.json)
+  
   inferenceResults: {
     type: [VoxelSchema],
     select: false

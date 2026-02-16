@@ -560,7 +560,6 @@ Return ONLY a valid JSON object with:
       );
       if (result.modifiedCount > 0) {
         Logger.info(`[System] Reset ${result.modifiedCount} stale 'processing' projects to 'active'.`);
-        ActivityService.log('system', `System startup: Reset ${result.modifiedCount} stale jobs.`);
       }
     } catch (error) {
       Logger.error('[System] Failed to cleanup stale jobs', error);
