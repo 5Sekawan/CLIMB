@@ -44,3 +44,21 @@ CREATE OR REPLACE TABLE `climb_dev_1.actual_production` (
 
 CREATE OR REPLACE TABLE `climb_dev_2.actual_production` LIKE `climb_dev_1.actual_production`;
 CREATE OR REPLACE TABLE `climb_prod.actual_production` LIKE `climb_dev_1.actual_production`;
+
+-- =========================================
+-- OPTIONAL: Vector Indexes for Faster RAG Search
+-- =========================================
+-- These take a few minutes to build and are optional (brute force works without them).
+-- Uncomment and run after tables have data to improve vector search performance.
+
+-- CREATE OR REPLACE VECTOR INDEX geological_knowledge_embedding_idx
+-- ON climb_prod.geological_knowledge(embedding)
+-- OPTIONS(distance_type='COSINE', index_type='IVF');
+
+-- CREATE OR REPLACE VECTOR INDEX geological_knowledge_dev1_idx
+-- ON climb_dev_1.geological_knowledge(embedding)
+-- OPTIONS(distance_type='COSINE', index_type='IVF');
+
+-- CREATE OR REPLACE VECTOR INDEX geological_knowledge_dev2_idx
+-- ON climb_dev_2.geological_knowledge(embedding)
+-- OPTIONS(distance_type='COSINE', index_type='IVF');

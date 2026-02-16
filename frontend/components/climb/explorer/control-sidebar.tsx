@@ -12,44 +12,55 @@ import {
   SatelliteIcon,
   EyeIcon,
   ChevronDownIcon,
+  LockIcon,
 } from "@/components/climb/icons";
 import { useState } from "react";
-import type { ProjectDetail } from "@/lib/mock-data";
+import type { ProjectDetail, IMarginalZone } from "@/lib/mock-data";
 
 interface ControlSidebarProps {
   project: ProjectDetail;
-  selectedMineral: string;
-  onMineralChange: (mineral: string) => void;
+  selectedMinerals: string[];
+  onMineralsChange: (minerals: string[]) => void;
   depthValue: number;
   onDepthChange: (val: number) => void;
   opacityValue: number;
   onOpacityChange: (val: number) => void;
   activeLayerId: string;
   onLayerChange: (id: string) => void;
+  hasVoxels: boolean;
+  marginalZones?: IMarginalZone[];
+  selectedZone?: IMarginalZone | null;
+  onZoneSelect?: (zone: IMarginalZone) => void;
   className?: string;
 }
 
 const layers = [
   { id: "satellite", label: "Satellite Imagery", icon: SatelliteIcon },
+  { id: "combined", label: "Combined View", icon: LayersIcon },
   { id: "voxel", label: "Voxel Model", icon: VoxelIcon },
-  // { id: "dem", label: "DEM Surface", icon: LayersIcon },
+  { id: "marginal-zone", label: "Marginal Zones", icon: LayersIcon },
 ];
 
 export function ControlSidebar({
   project,
-  selectedMineral,
-  onMineralChange,
+  selectedMinerals,
+  onMineralsChange,
   depthValue,
   onDepthChange,
   opacityValue,
   onOpacityChange,
   activeLayerId,
   onLayerChange,
+  hasVoxels,
+  marginalZones,
+  selectedZone,
+  onZoneSelect,
   className,
 }: ControlSidebarProps) {
   const [sectionsOpen, setSectionsOpen] = useState<Record<string, boolean>>({
     meta: true,
     layers: true,
+    zones: false,
     minerals: true,
     depth: true,
     opacity: true,
@@ -57,6 +68,18 @@ export function ControlSidebar({
 
   const toggleSection = (key: string) =>
     setSectionsOpen((p) => ({ ...p, [key]: !p[key] }));
+
+  const toggleMineral = (mineralId: string) => {
+    if (selectedMinerals.includes(mineralId)) {
+      // Remove if already selected (but keep at least one)
+      if (selectedMinerals.length > 1) {
+        onMineralsChange(selectedMinerals.filter((m) => m !== mineralId));
+      }
+    } else {
+      // Add to selection
+      onMineralsChange([...selectedMinerals, mineralId]);
+    }
+  };
 
   return (
     <aside
@@ -109,54 +132,153 @@ export function ControlSidebar({
           {layers.map((layer) => {
             const Icon = layer.icon;
             const isActive = activeLayerId === layer.id;
+            const isDisabled =
+              ((layer.id === "voxel" || layer.id === "combined") && !hasVoxels) ||
+              (layer.id === "marginal-zone" && (!hasVoxels || !marginalZones || marginalZones.length === 0));
+
             return (
               <button
                 key={layer.id}
-                onClick={() => onLayerChange(layer.id)}
+                onClick={() => !isDisabled && onLayerChange(layer.id)}
+                disabled={isDisabled}
                 className={cn(
                   "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-climb-fast",
-                  isActive
-                    ? "bg-climb-mint-subtle text-foreground shadow-climb-1"
-                    : "text-muted-foreground hover:bg-muted",
+                  isDisabled
+                    ? "cursor-not-allowed opacity-50"
+                    : isActive
+                      ? "bg-climb-mint-subtle text-foreground shadow-climb-1"
+                      : "text-muted-foreground hover:bg-muted",
                 )}
               >
                 <Icon className="h-4 w-4" />
                 <span className="flex-1 text-left text-xs font-medium">
                   {layer.label}
                 </span>
-                <div className={cn(
-                  "h-2 w-2 rounded-full",
-                  isActive ? "bg-climb-mint animate-pulse" : "bg-border"
-                )} />
+                {isDisabled ? (
+                  <LockIcon className="h-3 w-3 text-muted-foreground" />
+                ) : (
+                  <div className={cn(
+                    "h-2 w-2 rounded-full",
+                    isActive ? "bg-climb-mint animate-pulse" : "bg-border"
+                  )} />
+                )}
               </button>
             );
           })}
+          {!hasVoxels && (
+            <p className="text-[10px] text-muted-foreground italic mt-1">
+              Run AI Inference to unlock Voxel Model
+            </p>
+          )}
         </div>
       </SidebarSection>
 
-      {/* Mineral Selection -- dynamic from project.mineralLayers */}
+      {/* Marginal Zones Section */}
       <SidebarSection
-        title="Mineral Layer"
+        title="Marginal Zones"
+        isOpen={sectionsOpen.zones}
+        onToggle={() => toggleSection("zones")}
+        disabled={!marginalZones || marginalZones.length === 0}
+      >
+        {marginalZones && marginalZones.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            {marginalZones.map((zone) => {
+              const isSelected = selectedZone?.id === zone.id;
+              return (
+                <button
+                  key={zone.id}
+                  onClick={() => onZoneSelect?.(zone)}
+                  className={cn(
+                    "flex flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-all duration-climb-fast",
+                    isSelected
+                      ? "bg-emerald-500/10 ring-1 ring-emerald-500/30 text-foreground"
+                      : "text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={cn(
+                      "text-xs font-semibold",
+                      isSelected ? "text-emerald-300" : ""
+                    )}>
+                      {zone.name}
+                    </span>
+                    <span className="text-[10px] font-medium text-emerald-400/80">
+                      #{zone.rank}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className={cn(zone.stats.npv > 0 ? "text-emerald-400" : "text-red-400")}>
+                      NPV: ${zone.stats.npv >= 1000 ? `${(zone.stats.npv / 1000).toFixed(1)}K` : zone.stats.npv.toFixed(0)}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {zone.stats.totalTonnage >= 1000 ? `${(zone.stats.totalTonnage / 1000).toFixed(1)}Kt` : `${zone.stats.totalTonnage.toFixed(0)}t`}
+                    </span>
+                    <span className="text-amber-400/70">
+                      {(zone.stats.dilutionRatio * 100).toFixed(0)}% dilution
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <LockIcon className="h-5 w-5 text-muted-foreground/50" />
+            <p className="text-[10px] text-muted-foreground">
+              Generate Dig Lines to see zones
+            </p>
+          </div>
+        )}
+      </SidebarSection>
+
+      {/* Mineral Selection -- multi-select checkboxes */}
+      <SidebarSection
+        title="Mineral Layers"
         isOpen={sectionsOpen.minerals}
         onToggle={() => toggleSection("minerals")}
+        disabled={!hasVoxels}
       >
-        <div className="flex flex-col gap-1.5">
-          {project.mineralLayers.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => onMineralChange(m.id)}
-              className={cn(
-                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-climb-fast",
-                selectedMineral === m.id
-                  ? "bg-climb-mint-subtle text-foreground ring-1 ring-primary/30"
-                  : "text-muted-foreground hover:bg-muted",
-              )}
-            >
-              <span className={cn("h-3 w-3 rounded-full", m.color)} />
-              <span className="text-xs font-medium">{m.label}</span>
-            </button>
-          ))}
-        </div>
+        {hasVoxels ? (
+          <div className="flex flex-col gap-1.5">
+            {project.mineralLayers.map((m) => {
+              const isChecked = selectedMinerals.includes(m.id);
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => toggleMineral(m.id)}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-climb-fast",
+                    isChecked
+                      ? "bg-climb-mint-subtle text-foreground ring-1 ring-primary/30"
+                      : "text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {/* Checkbox indicator */}
+                  <div className={cn(
+                    "flex h-4 w-4 items-center justify-center rounded border-2 transition-all",
+                    isChecked
+                      ? "border-climb-mint bg-climb-mint"
+                      : "border-muted-foreground"
+                  )}>
+                    {isChecked && (
+                      <svg className="h-3 w-3 text-white" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </div>
+                  <span className="text-xs font-medium">{m.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <LockIcon className="h-5 w-5 text-muted-foreground/50" />
+            <p className="text-[10px] text-muted-foreground">
+              Run AI Inference to filter by minerals
+            </p>
+          </div>
+        )}
       </SidebarSection>
 
       {/* Depth Slicer */}
@@ -164,16 +286,26 @@ export function ControlSidebar({
         title="Depth Slicer"
         isOpen={sectionsOpen.depth}
         onToggle={() => toggleSection("depth")}
+        disabled={!hasVoxels}
       >
-        <CSlider
-          min={0}
-          max={50}
-          step={1}
-          value={depthValue}
-          onChange={onDepthChange}
-          unit="m"
-          label="Cut Depth"
-        />
+        {hasVoxels ? (
+          <CSlider
+            min={0}
+            max={50}
+            step={1}
+            value={depthValue}
+            onChange={onDepthChange}
+            unit="m"
+            label="Cut Depth"
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <LockIcon className="h-5 w-5 text-muted-foreground/50" />
+            <p className="text-[10px] text-muted-foreground">
+              Available after inference
+            </p>
+          </div>
+        )}
       </SidebarSection>
 
       {/* Opacity Controller */}
@@ -181,15 +313,25 @@ export function ControlSidebar({
         title="Opacity"
         isOpen={sectionsOpen.opacity}
         onToggle={() => toggleSection("opacity")}
+        disabled={!hasVoxels}
       >
-        <CSlider
-          min={0}
-          max={1}
-          step={0.01}
-          value={opacityValue}
-          onChange={onOpacityChange}
-          label="Voxel Opacity"
-        />
+        {hasVoxels ? (
+          <CSlider
+            min={0}
+            max={1}
+            step={0.01}
+            value={opacityValue}
+            onChange={onOpacityChange}
+            label="Voxel Opacity"
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <LockIcon className="h-5 w-5 text-muted-foreground/50" />
+            <p className="text-[10px] text-muted-foreground">
+              Available after inference
+            </p>
+          </div>
+        )}
       </SidebarSection>
     </aside>
   );
@@ -201,19 +343,29 @@ function SidebarSection({
   children,
   isOpen,
   onToggle,
+  disabled,
 }: {
   title: string;
   children: React.ReactNode;
   isOpen: boolean;
   onToggle: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="border-b border-border">
       <button
         onClick={onToggle}
-        className="flex w-full items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+        className={cn(
+          "flex w-full items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-wider transition-colors",
+          disabled
+            ? "text-muted-foreground/50"
+            : "text-muted-foreground hover:text-foreground"
+        )}
       >
-        {title}
+        <span className="flex items-center gap-2">
+          {title}
+          {disabled && <LockIcon className="h-3 w-3" />}
+        </span>
         <ChevronDownIcon
           className={cn(
             "h-3.5 w-3.5 transition-transform duration-climb-fast",

@@ -1,15 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { use } from "react";
-import { MapCanvas } from "@/components/climb/explorer/map-canvas";
+import { SatelliteView } from "@/components/climb/explorer/satellite-view";
+import { VoxelView3D } from "@/components/climb/explorer/voxel-view-3d";
+import { CombinedView } from "@/components/climb/explorer/combined-view";
+import { MarginalZoneView } from "@/components/climb/explorer/marginal-zone-view";
+import { DigLineModal } from "@/components/climb/explorer/dig-line-modal";
 import { FloatingTools } from "@/components/climb/explorer/floating-tools";
 import { ControlSidebar } from "@/components/climb/explorer/control-sidebar";
 import { IntelligencePanel } from "@/components/climb/explorer/intelligence-panel";
 import { OperationalCockpit } from "@/components/climb/explorer/operational-cockpit";
-import { useProjectDetail } from "@/hooks/use-projects";
+import { useProjectDetail, useProjectVoxels, useMarginalZones } from "@/hooks/use-projects";
 import { MountainIcon, ArrowLeftIcon, RecycleIcon } from "@/components/climb/icons";
 import { CButton } from "@/components/climb/ui";
+import type { IMarginalZone } from "@/lib/mock-data";
 import Link from "next/link";
 
 export default function ExplorerPage({
@@ -60,17 +65,66 @@ export default function ExplorerPage({
 function ExplorerStudio({
   project,
 }: {
-  project: NonNullable<ReturnType<typeof getProjectDetail>>;
+  project: NonNullable<ReturnType<typeof useProjectDetail>['data']>;
 }) {
-  const defaultMineral = project.mineralLayers[0]?.id ?? "Au";
-  const [selectedMineral, setSelectedMineral] = useState(defaultMineral);
+  // Fetch voxels to determine if they exist
+  const { data: voxels } = useProjectVoxels(project?.id || "");
+
+  // Compute hasVoxels: true if inference completed and voxels exist
+  const hasVoxels = useMemo(() => {
+    if (!project) return false;
+    const hasVoxelData = voxels && Array.isArray(voxels) && voxels.length > 0;
+    const pipelineCompleted = (project as any).pipelinePhase === 'completed';
+    const hasCachedData = !!(project as any).cachedContext?.mineralRecon;
+    return hasVoxelData || pipelineCompleted || hasCachedData;
+  }, [project, voxels]);
+
+  // State: Multi-select minerals (default to first mineral)
+  const defaultMinerals = useMemo(() => {
+    if (!project?.mineralLayers?.length) return ['Au'];
+    return [project.mineralLayers[0].id]; // Start with first mineral selected
+  }, [project?.mineralLayers]);
+
+  const [selectedMinerals, setSelectedMinerals] = useState<string[]>(defaultMinerals);
   const [activeLayerId, setActiveLayerId] = useState("satellite");
   const [depthValue, setDepthValue] = useState(25);
   const [opacityValue, setOpacityValue] = useState(0.75);
+  const [showDigLineModal, setShowDigLineModal] = useState(false);
+  const [selectedZone, setSelectedZone] = useState<IMarginalZone | null>(null);
+  const [marginalZoneResult, setMarginalZoneResult] = useState<any>(null);
+
+  // Fetch saved marginal zones
+  const { data: savedMarginalZones } = useMarginalZones(project?.id || "");
+
+  // Resolve zones: from fresh generation result or from saved data
+  const marginalZones = useMemo(() => {
+    if (marginalZoneResult?.zones) return marginalZoneResult.zones as IMarginalZone[];
+    if (savedMarginalZones?.zones) return savedMarginalZones.zones as IMarginalZone[];
+    return [];
+  }, [marginalZoneResult, savedMarginalZones]);
+
+  const cogPerMineral = useMemo(() => {
+    return marginalZoneResult?.cogPerMineral || savedMarginalZones?.cogPerMineral || {};
+  }, [marginalZoneResult, savedMarginalZones]);
+
+  // Zone selection handler
+  const handleZoneSelect = (zone: IMarginalZone) => {
+    setSelectedZone(zone);
+    setActiveLayerId('marginal-zone');
+  };
+
+  // Dig line generation handler
+  const handleDigLineSuccess = (data: any) => {
+    setMarginalZoneResult(data);
+    if (data.zones && data.zones.length > 0) {
+      setSelectedZone(data.zones[0]);
+      setActiveLayerId('marginal-zone');
+    }
+  };
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
-      {/* Top bar: back button + project name, with vertical spacing matching the nav gap */}
+      {/* Top bar: back button + project name */}
       <div className="flex items-center gap-3 border-b border-border bg-card/60 px-4 py-2.5">
         <Link
           href="/explorer"
@@ -100,40 +154,93 @@ function ExplorerStudio({
         </div>
       </div>
 
-      {/* Main content with padding */}
+      {/* Main content */}
       <div className="flex flex-1 overflow-hidden p-2">
         {/* Left Control Sidebar */}
         <ControlSidebar
           project={project}
-          selectedMineral={selectedMineral}
-          onMineralChange={setSelectedMineral}
+          selectedMinerals={selectedMinerals}
+          onMineralsChange={setSelectedMinerals}
           activeLayerId={activeLayerId}
           onLayerChange={setActiveLayerId}
           depthValue={depthValue}
           onDepthChange={setDepthValue}
           opacityValue={opacityValue}
           onOpacityChange={setOpacityValue}
+          hasVoxels={hasVoxels ?? false}
+          marginalZones={marginalZones}
+          selectedZone={selectedZone}
+          onZoneSelect={handleZoneSelect}
           className="rounded-lg"
         />
 
-        {/* Main Map Area */}
+        {/* Main View Area - Conditional Rendering */}
         <div className="relative mx-2 flex-1 overflow-hidden rounded-lg border border-border">
-          <MapCanvas
-            selectedMineral={selectedMineral}
-            activeLayerId={activeLayerId}
-            projectName={project.name}
-            center={project.center}
-            projectId={project.id}
-            aoi={project.aoi}
-          />
+          {activeLayerId === 'satellite' && (
+            <SatelliteView
+              projectName={project.name}
+              center={project.center}
+              aoi={project.aoi}
+              nearestDeposits={project.cachedContext?.nearestDeposits}
+            />
+          )}
 
-          {/* Floating Tool Dock */}
-          <FloatingTools className="absolute left-4 top-4" />
+          {activeLayerId === 'voxel' && (
+            <VoxelView3D
+              projectName={project.name}
+              projectId={project.id}
+              selectedMinerals={selectedMinerals}
+              depthValue={depthValue}
+              opacityValue={opacityValue}
+            />
+          )}
+
+          {activeLayerId === 'combined' && (
+            <CombinedView
+              projectName={project.name}
+              projectId={project.id}
+              center={project.center}
+              aoi={project.aoi}
+              selectedMinerals={selectedMinerals}
+              opacityValue={opacityValue}
+            />
+          )}
+
+          {activeLayerId === 'marginal-zone' && selectedZone && (
+            <MarginalZoneView
+              projectName={project.name}
+              projectId={project.id}
+              center={project.center}
+              aoi={project.aoi}
+              selectedMinerals={selectedMinerals}
+              opacityValue={opacityValue}
+              zone={selectedZone}
+              cogPerMineral={cogPerMineral}
+            />
+          )}
+
+          {/* Floating Tool Dock (only in satellite view) */}
+          {activeLayerId === 'satellite' && (
+            <FloatingTools className="absolute left-4 top-4" />
+          )}
         </div>
 
         {/* Right Intelligence Panel */}
-        <IntelligencePanel project={project} className="rounded-lg" />
+        <IntelligencePanel
+          project={project}
+          onGenerateDigLines={() => setShowDigLineModal(true)}
+          className="rounded-lg"
+        />
       </div>
+
+      {/* Dig Line Modal */}
+      <DigLineModal
+        isOpen={showDigLineModal}
+        onClose={() => setShowDigLineModal(false)}
+        projectId={project.id}
+        minerals={project.mineralLayers || []}
+        onSuccess={handleDigLineSuccess}
+      />
 
       {/* Bottom Operational Cockpit */}
       <div className="px-2 pb-2">

@@ -2,156 +2,550 @@ import { generativeModel } from '../config/gcp';
 import { RAGService } from './ragService';
 import { SatelliteService } from './satelliteService';
 import { ExternalDataService } from './externalDataService';
-import { SpatialGridService } from './spatialGridService';
+import { SpatialGridService, VoxelBatch } from './spatialGridService';
 import type { Voxel } from './spatialGridService';
 import { Project } from '../models/Project';
 import * as turf from '@turf/turf';
 import { ActivityService } from './activityService';
 import { Logger } from '../utils/logger';
-import fs from 'fs';
-import path from 'path';
+import { MineralReconService } from './mineralReconService';
 
-// Storage configuration
-const STORAGE_DIR = process.env.STORAGE_DIR || '/app/storage';
+// Configuration
+const PARALLEL_BATCH_CONCURRENCY = 20; // Max parallel Gemini calls
+
+interface BatchResult {
+  batchId: number;
+  predictions: any[];
+  surfaceFeatures: {
+    ndvi: number;
+    thermal: number;
+    swir: number;
+  };
+}
+
+interface SharedContext {
+  ragSnippets: any[];
+  nearestDeposits: any[];
+  projectName: string;
+  location: string;
+  minerals: string[];
+}
 
 export class InferenceService {
   /**
-   * Orchestrates the hybrid inference process (Legacy Sync Wrapper)
+   * Processes a single batch with its own geospatial context
    */
-  static async predictGrade(projectName: string, polygon: [number, number][]): Promise<any> {
-    // This is kept for backward compatibility but effectively does a simplified run
-    Logger.warn('[PredictGrade] Deprecated sync method called. Use runInferencePipeline instead.');
-    return []; 
+  private static async processBatch(
+    batch: VoxelBatch,
+    sharedContext: SharedContext
+  ): Promise<BatchResult> {
+    const { batchId, voxels, centroid } = batch;
+    Logger.info(`[Pipeline] Processing batch ${batchId} (${voxels.length} voxels) at ${centroid.lat.toFixed(4)}, ${centroid.lon.toFixed(4)}`);
+
+    try {
+      // Get per-batch satellite data using batch's bounding box
+      const batchGeojson = SpatialGridService.batchToGeoJSON(batch);
+
+      const [ndvi, thermal, swir] = await Promise.all([
+        SatelliteService.getNDVI(batchGeojson),
+        SatelliteService.getThermalAnomaly(batchGeojson),
+        SatelliteService.getSWIR(batchGeojson)
+      ]);
+
+      // Build dynamic format example for the LLM
+      const mineralGradeFormat = sharedContext.minerals.map(m => `"${m.toLowerCase()}_grade": number`).join(', ');
+      const examplePrediction = sharedContext.minerals.reduce((obj: any, m) => {
+        obj[`${m.toLowerCase()}_grade`] = 0.5;
+        return obj;
+      }, { id: "voxel_0_0_0", uncertainty: 0.3 });
+
+      const prompt = `
+System: You are an expert Geostatistician AI specializing in mineral grade estimation.
+
+CRITICAL INSTRUCTION: You must predict grades for EXACTLY these minerals: ${sharedContext.minerals.join(', ')}
+DO NOT predict au_grade or cu_grade unless they are in the list above.
+EACH prediction object MUST contain: ${sharedContext.minerals.map(m => `${m.toLowerCase()}_grade`).join(', ')}
+
+PROJECT CONTEXT:
+- Name: ${sharedContext.projectName}
+- Location: ${sharedContext.location}
+- Target Minerals: ${sharedContext.minerals.join(', ')}
+- Nearby Deposits: ${JSON.stringify(sharedContext.nearestDeposits.slice(0, 3).map(d => ({
+        name: d.site_name,
+        mineral: d.mineral_type || 'Unknown',
+        grade_info: d.grade ? `${d.grade} ${d.unit}` : 'Qualitative'
+      })))}
+
+LOCAL SATELLITE DATA (This Sub-region):
+- Batch Center: ${centroid.lat.toFixed(6)}, ${centroid.lon.toFixed(6)}
+- NDVI: ${ndvi.toFixed(3)} | Thermal: ${thermal.toFixed(2)}°C | SWIR: ${swir.toFixed(3)}
+
+VOXELS TO PREDICT: ${voxels.length}
+Voxel IDs: ${voxels.slice(0, 5).map(v => v.id).join(', ')}${voxels.length > 5 ? '...' : ''}
+
+OUTPUT FORMAT (STRICTLY FOLLOW THIS):
+Return ONLY a JSON array. Each object must have this EXACT structure:
+${JSON.stringify(examplePrediction, null, 2)}
+
+EXAMPLE OUTPUT for minerals [${sharedContext.minerals.join(', ')}]:
+[
+  {"id": "${voxels[0]?.id || 'voxel_0_0_0'}", ${sharedContext.minerals.map(m => `"${m.toLowerCase()}_grade": 0.8`).join(', ')}, "uncertainty": 0.2},
+  ...
+]
+
+Generate predictions for ALL ${voxels.length} voxel IDs with realistic grade values (0-5 g/t range).
+`;
+
+      const result = await generativeModel.generateContent(prompt);
+      const response = result.response;
+      const text = (response.candidates && response.candidates[0].content.parts[0].text) || (response as any).text();
+
+      // LOG: Raw LLM response for first batch only (to avoid flooding logs)
+      if (batchId === 0) {
+        Logger.info(`[Pipeline] Batch 0 Raw LLM response (${text.length} chars): ${text.substring(0, 1000)}${text.length > 1000 ? '...' : ''}`);
+      }
+
+      // Parse JSON response
+      const jsonStr = text.replace(/```json|```/g, '').trim();
+      let predictions: any[] = [];
+
+      try {
+        predictions = JSON.parse(jsonStr);
+        // LOG: Sample of parsed predictions for first batch
+        if (batchId === 0 && predictions.length > 0) {
+          Logger.info(`[Pipeline] Batch 0 Sample prediction: ${JSON.stringify(predictions[0])}`);
+          const sampleKeys = Object.keys(predictions[0]).filter(k => k.includes('_grade'));
+          Logger.info(`[Pipeline] Batch 0 Grade keys found: [${sampleKeys.join(', ')}]`);
+        }
+      } catch (e) {
+        Logger.error(`[Pipeline] Batch ${batchId} JSON parse error`, e);
+        Logger.warn(`[Pipeline] Batch ${batchId} Failed JSON: ${jsonStr.substring(0, 300)}`);
+        // Fallback: generate empty predictions for ALL target minerals dynamically
+        predictions = voxels.map(v => {
+          const pred: any = { id: v.id, uncertainty: 1 };
+          sharedContext.minerals.forEach(m => {
+            pred[`${m.toLowerCase()}_grade`] = 0;
+          });
+          return pred;
+        });
+      }
+
+      // CRITICAL: Normalize predictions to ensure all requested minerals have grades
+      const normalizedPredictions = this.normalizePredictions(predictions, voxels, sharedContext.minerals);
+
+      Logger.info(`[Pipeline] Batch ${batchId} completed with ${normalizedPredictions.length} predictions`);
+
+      return {
+        batchId,
+        predictions: normalizedPredictions,
+        surfaceFeatures: { ndvi, thermal, swir }
+      };
+    } catch (error) {
+      Logger.error(`[Pipeline] Batch ${batchId} failed`, error);
+      // Return empty predictions with dynamic minerals on error
+      const emptyPredictions = voxels.map(v => {
+        const pred: any = { id: v.id, uncertainty: 1 };
+        sharedContext.minerals.forEach(m => {
+          pred[`${m.toLowerCase()}_grade`] = 0;
+        });
+        return pred;
+      });
+      return {
+        batchId,
+        predictions: emptyPredictions,
+        surfaceFeatures: { ndvi: 0, thermal: 0, swir: 0 }
+      };
+    }
   }
 
   /**
-   * Background Worker for Full Inference Pipeline (DEMO / MOCK MODE)
-   * Bypasses GEE/Vertex AI to ensure stability for presentation.
+   * Normalize LLM predictions to ensure all requested minerals have grade values
+   * Handles cases where LLM returns wrong field names (e.g., au_grade instead of ag_grade)
+   */
+  private static normalizePredictions(
+    predictions: any[],
+    voxels: any[],
+    targetMinerals: string[]
+  ): any[] {
+    // Build a map of voxel IDs to their original data for fallback
+    const voxelMap = new Map(voxels.map(v => [v.id, v]));
+
+    return predictions.map((pred, idx) => {
+      const normalized: any = {
+        id: pred.id || voxels[idx]?.id || `voxel_${idx}`,
+        uncertainty: pred.uncertainty ?? 0.5
+      };
+
+      // Ensure each target mineral has a grade
+      targetMinerals.forEach(mineral => {
+        const key = `${mineral.toLowerCase()}_grade`;
+
+        if (pred[key] !== undefined && typeof pred[key] === 'number') {
+          // Use LLM's prediction if it exists
+          normalized[key] = pred[key];
+        } else {
+          // Check for common mismatches (e.g., LLM returns "gold_grade" instead of "au_grade")
+          const altKeys = this.getAlternativeGradeKeys(mineral);
+          let found = false;
+
+          for (const altKey of altKeys) {
+            if (pred[altKey] !== undefined && typeof pred[altKey] === 'number') {
+              normalized[key] = pred[altKey];
+              found = true;
+              break;
+            }
+          }
+
+          if (!found) {
+            // Default to 0 if no matching grade found
+            normalized[key] = 0;
+          }
+        }
+      });
+
+      return normalized;
+    });
+  }
+
+  /**
+   * Get alternative grade key names that LLM might use
+   */
+  private static getAlternativeGradeKeys(mineral: string): string[] {
+    const aliases: Record<string, string[]> = {
+      Au: ['gold_grade', 'au', 'gold'],
+      Cu: ['copper_grade', 'cu', 'copper'],
+      Ag: ['silver_grade', 'ag', 'silver'],
+      Ni: ['nickel_grade', 'ni', 'nickel'],
+      Co: ['cobalt_grade', 'co', 'cobalt'],
+      Fe: ['iron_grade', 'fe', 'iron'],
+      Mn: ['manganese_grade', 'mn', 'manganese'],
+      Sn: ['tin_grade', 'sn', 'tin'],
+      Mo: ['molybdenum_grade', 'mo', 'molybdenum'],
+      Zn: ['zinc_grade', 'zn', 'zinc'],
+      Cr: ['chromium_grade', 'cr', 'chromium'],
+      Ta: ['tantalum_grade', 'ta', 'tantalum'],
+      Pb: ['lead_grade', 'pb', 'lead'],
+      W: ['tungsten_grade', 'w', 'tungsten']
+    };
+    return aliases[mineral] || [];
+  }
+
+  /**
+   * Background Worker for Full Inference Pipeline with Parallel Batch Processing
    */
   static async runInferencePipeline(projectId: string) {
-    Logger.job('InferencePipeline', 'START', `Starting DEMO inference for project: ${projectId}`);
-    
+    Logger.job('InferencePipeline', 'START', `Starting background job for project: ${projectId}`);
+
     try {
       const project = await Project.findById(projectId);
       if (!project) throw new Error('Project not found');
 
       await ActivityService.log('inference', `Started inference pipeline for ${project.name}`, projectId, project.name);
 
-      // 1. Context Gathering (MOCKED)
-      const polygon = project.aoi.coordinates[0]; // GeoJSON format
-      
-      // Simulate Processing Delay (3 Seconds)
-      Logger.info('[Pipeline] Simulating Satellite & AI Analysis...');
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // =========================================
+      // PHASE 0: Mineral Reconnaissance
+      // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'mineral_recon' });
+      const polygon = project.aoi.coordinates[0];
+      const geojson = { type: 'Polygon', coordinates: [polygon] };
+      const centerPt = turf.center(geojson as any);
+      const [lon, lat] = centerPt.geometry.coordinates;
 
-      // Mocked Context Data
-      const ndvi = 0.65;
-      const thermal = 24.5;
-      const swir = 1.8; // High alteration
-      const ragSnippets = [{ content: "Geological report indicates potential high-sulfidation epithermal system." }];
-      const nearestData = [
-        { site_name: "Batu Hijau Reference", distance_meters: 15000, grade: "0.5% Cu", source: "Kaggle" },
-        { site_name: "Tujuh Bukit", distance_meters: 45000, grade: "0.8 g/t Au", source: "Kaggle" }
-      ];
+      Logger.info(`[Pipeline] Phase 0: Running mineral reconnaissance for ${project.name}`);
+      await ActivityService.log('inference', `Phase 0: Mineral reconnaissance started`, projectId, project.name);
 
-      // 2. AI Parameter Generation (HARDCODED / MOCKED)
-      // These parameters generate a nice looking ore body
-      const params = {
-        "au_base_grade": 1.2,
-        "cu_base_grade": 0.6,
-        "trend_azimuth": 45, // NE Trend
-        "trend_dip": 0,
-        "depth_decay_factor": 0.015,
-        "noise_variability": 0.15,
-        "reasoning": "DEMO MODE: High-confidence potential detected based on simulated strong thermal anomaly and structural trend."
+      const reconResult = await MineralReconService.predictMinerals(lat, lon, project.name, project.location, polygon as number[][]);
+
+      // Update project with predicted minerals
+      project.minerals = reconResult.minerals;
+      project.mineralMetadata = MineralReconService.generateMineralMetadata(reconResult.minerals);
+
+      Logger.info(`[Pipeline] Mineral recon complete: ${reconResult.minerals.join(', ')} (confidence: ${reconResult.confidence})`);
+      await ActivityService.log('inference', `Predicted minerals: ${reconResult.minerals.join(', ')}`, projectId, project.name);
+
+      // =========================================
+      // PHASE 1: Gather SHARED Context (once)
+      // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'gathering_context' });
+      Logger.info(`[Pipeline] Phase 1: Gathering shared context for ${project.name}`);
+
+      const [ragSnippets, nearestData] = await Promise.all([
+        RAGService.searchKnowledge(`Geology and minerals near ${lat}, ${lon}`, 5),
+        ExternalDataService.getNearestDeposits(lat, lon, 5)
+      ]);
+
+      const sharedContext: SharedContext = {
+        ragSnippets,
+        nearestDeposits: nearestData,
+        projectName: project.name,
+        location: project.location,
+        minerals: reconResult.minerals  // Use dynamically predicted minerals
       };
-      
-      Logger.info(`[Pipeline] Using Mock Parameters:`, params);
 
-      // 3. Procedural Voxel Generation
-      Logger.info(`[Pipeline] Generating spatial grid (Adaptive)...`);
-      const voxels = SpatialGridService.generateVoxels(polygon as [number, number][], 50);
-      
-      Logger.info(`[Pipeline] Applying model to ${voxels.length} voxels...`);
-      
-      const centerLon = polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length;
-      const centerLat = polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length;
+      Logger.info(`[Pipeline] Shared context loaded: ${ragSnippets.length} RAG snippets, ${nearestData.length} deposits`);
 
-      // Mathematical Application of Parameters
-      const processedVoxels = voxels.map(v => {
-        // Distance from center along trend vector
-        const dx = (v.lon - centerLon) * 111000; // meters
-        const dy = (v.lat - centerLat) * 111000; // meters
-        
-        // Rotate coordinates by trend azimuth
-        const rad = (params.trend_azimuth || 0) * (Math.PI / 180);
-        const distTrend = dx * Math.cos(rad) + dy * Math.sin(rad);
-        
-        // Create a "Core" effect (Higher grade in center)
-        const distFromCenter = Math.sqrt(dx*dx + dy*dy);
-        const coreFactor = Math.max(0, 1 - (distFromCenter / 500)); // Decay over 500m
+      // =========================================
+      // PHASE 2: Voxelization & Batching
+      // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'voxelization' });
+      Logger.info(`[Pipeline] Phase 2: Generating spatial grid and batches`);
 
-        // Grade Calculation
-        let au = (params.au_base_grade || 0) * coreFactor - (v.z * (params.depth_decay_factor || 0.01));
-        let cu = (params.cu_base_grade || 0) * coreFactor - (v.z * (params.depth_decay_factor || 0.01));
-        
-        // Add Noise
-        const noise = (Math.random() - 0.5) * 2 * (params.noise_variability || 0.1);
-        au = Math.max(0, au * (1 + noise));
-        cu = Math.max(0, cu * (1 + noise));
+      const voxels = SpatialGridService.generateVoxels(polygon as [number, number][]);
+      const batches = SpatialGridService.batchVoxels(voxels);
 
-        return {
-          id: v.id,
-          x: v.x, y: v.y, z: v.z,
-          lat: v.lat, lon: v.lon,
-          au_grade: Number(au.toFixed(3)),
-          cu_grade: Number(cu.toFixed(3)),
-          rock_type: v.z < 10 ? 'Oxide' : 'Sulphide',
-          uncertainty: Number((0.1 + (v.z * 0.01)).toFixed(2))
-        };
+      Logger.info(`[Pipeline] Created ${batches.length} batches from ${voxels.length} voxels`);
+      await ActivityService.log('inference', `Voxelization complete: ${voxels.length} voxels in ${batches.length} batches`, projectId, project.name);
+
+      // =========================================
+      // PHASE 3: Parallel Batch Processing
+      // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'batch_processing' });
+      Logger.info(`[Pipeline] Phase 3: Starting ${batches.length} parallel inference jobs`);
+
+      // Process all batches in parallel
+      const batchPromises = batches.map(batch =>
+        this.processBatch(batch, sharedContext)
+      );
+
+      const batchResults = await Promise.all(batchPromises);
+
+      Logger.info(`[Pipeline] All ${batchResults.length} batches completed`);
+
+      // =========================================
+      // PHASE 4: Merge Results
+      // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'merging_results' });
+      Logger.info(`[Pipeline] Phase 4: Merging results`);
+
+      // Flatten all predictions
+      const allPredictions = batchResults.flatMap(r => r.predictions);
+
+      // Calculate aggregate surface features (mean across batches)
+      const avgNdvi = batchResults.reduce((sum, r) => sum + r.surfaceFeatures.ndvi, 0) / batchResults.length;
+      const avgThermal = batchResults.reduce((sum, r) => sum + r.surfaceFeatures.thermal, 0) / batchResults.length;
+      const avgSwir = batchResults.reduce((sum, r) => sum + r.surfaceFeatures.swir, 0) / batchResults.length;
+
+      // Map predictions back to voxels BY INDEX (not by ID, since LLM may use different IDs)
+      // The predictions are ordered by batch, and within each batch, ordered by voxel index
+      const mergedVoxels = voxels.map((v, idx) => {
+        // Use index-based mapping since predictions maintain order within batches
+        const pred = allPredictions[idx];
+
+        if (pred) {
+          // Merge voxel spatial data with prediction grades
+          // Keep original voxel id, x, y, z, lat, lon
+          const merged: any = {
+            id: v.id,
+            x: v.x,
+            y: v.y,
+            z: v.z,
+            lat: v.lat,
+            lon: v.lon,
+            uncertainty: pred.uncertainty ?? 0.5
+          };
+
+          // Copy all mineral grades from prediction
+          Object.keys(pred).forEach(key => {
+            if (key.endsWith('_grade')) {
+              merged[key] = pred[key];
+            }
+          });
+
+          return merged;
+        } else {
+          // Fallback with dynamic minerals
+          const fallback: any = {
+            ...v,
+            uncertainty: 1
+          };
+          reconResult.minerals.forEach(m => {
+            fallback[`${m.toLowerCase()}_grade`] = 0;
+          });
+          return fallback;
+        }
       });
 
-      // 4. Save to File System
-      if (!fs.existsSync(STORAGE_DIR)) {
-        fs.mkdirSync(STORAGE_DIR, { recursive: true });
-      }
-      
-      const fileName = `voxel_data_${projectId}_${Date.now()}.json`;
-      const filePath = path.join(STORAGE_DIR, fileName);
-      
-      fs.writeFileSync(filePath, JSON.stringify(processedVoxels));
-      Logger.info(`[Pipeline] Saved ${processedVoxels.length} voxels to ${filePath}`);
+      // =========================================
+      // PHASE 5: Generate AI Summary
+      // =========================================
+      await Project.findByIdAndUpdate(projectId, { pipelinePhase: 'generating_summary' });
+      Logger.info(`[Pipeline] Phase 5: Generating AI summary`);
 
-      // 5. Update Project Document
-      project.inferenceResults = undefined; 
-      project.voxelDataUrl = `/api/storage/${fileName}`;
-      
+      let aiSummaryText = '';
+      let finalConfidence = reconResult.confidence ? Math.round(reconResult.confidence * 100) : 50;
+
+      try {
+        const summaryPrompt = `
+System: You are an expert Mining Geologist AI. Provide a final comprehensive assessment.
+
+PROJECT: ${project.name}
+LOCATION: ${project.location}
+TARGET MINERALS: ${reconResult.minerals.join(', ')}
+
+MINERAL RECONNAISSANCE:
+- Predicted: ${reconResult.minerals.join(', ')}
+- Reasoning: ${reconResult.reasoning}
+- Nearest Occurrences: ${reconResult.nearestOccurrences?.join(', ') || 'None'}
+- Recon Confidence: ${(reconResult.confidence * 100).toFixed(0)}%
+
+GEOLOGICAL KNOWLEDGE (RAG):
+${ragSnippets.map((s: any) => s.content || s.text || JSON.stringify(s)).join('\n').substring(0, 1500)}
+
+NEAREST KNOWN DEPOSITS:
+${nearestData.slice(0, 5).map((d: any) => `- ${d.site_name}: ${d.distance_meters?.toFixed(0)}m away, Grade: ${d.grade || 'N/A'} ${d.unit || ''}`).join('\n')}
+
+SURFACE FEATURES:
+- NDVI: ${avgNdvi.toFixed(3)}, Thermal: ${avgThermal.toFixed(2)}C, SWIR: ${avgSwir.toFixed(3)}
+
+PROCESSING RESULTS:
+- ${voxels.length} voxels across ${batches.length} batches processed
+- Average uncertainty: ${(allPredictions.reduce((s: number, p: any) => s + (p.uncertainty || 0.5), 0) / allPredictions.length).toFixed(2)}
+
+INSTRUCTIONS:
+Return ONLY a valid JSON object with:
+{
+  "summary": "A 3-4 sentence comprehensive geological assessment covering mineralization potential, key evidence, grade expectations, and operational recommendations.",
+  "confidence": <number 0-100 representing final model confidence based on data quality, geological favorability, and prediction consistency>
+}
+`;
+
+        const summaryResult = await generativeModel.generateContent(summaryPrompt);
+        const summaryResponse = summaryResult.response;
+        const summaryText = (summaryResponse.candidates && summaryResponse.candidates[0].content.parts[0].text) || '';
+        const cleanJson = summaryText.replace(/```json|```/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        aiSummaryText = parsed.summary || '';
+        finalConfidence = typeof parsed.confidence === 'number' ? Math.min(100, Math.max(0, Math.round(parsed.confidence))) : finalConfidence;
+        Logger.info(`[Pipeline] AI Summary generated. Confidence: ${finalConfidence}%`);
+      } catch (summaryErr) {
+        Logger.error('[Pipeline] AI Summary generation failed, using fallback', summaryErr);
+        aiSummaryText = `AI analysis of ${project.name} identified ${reconResult.minerals.join(', ')} mineralization potential based on ${voxels.length} voxel predictions across ${batches.length} sub-regions. Proximity to ${nearestData[0]?.site_name || 'known deposits'} and surface feature analysis support the assessment.`;
+      }
+
+      // =========================================
+      // PHASE 6: Save Results
+      // =========================================
+      project.inferenceResults = mergedVoxels;
       project.cachedContext = {
+        mineralRecon: {
+          predictedMinerals: reconResult.minerals,
+          reasoning: reconResult.reasoning,
+          nearestOccurrences: reconResult.nearestOccurrences,
+          confidence: reconResult.confidence,
+          reconAt: new Date(),
+          surfaceAnalysis: reconResult.surfaceAnalysis
+        },
         ragSummary: {
-          short: `AI Analysis: ${params.reasoning}`,
-          long: params.reasoning,
-          sourceRef: "CLIMB AI Engine (Demo)"
+          short: `AI analyzed ${batches.length} sub-regions with ${avgThermal > 2.0 ? 'elevated thermal signatures' : 'moderate surface indicators'}.`,
+          long: `Parallel analysis of ${voxels.length} voxels across ${batches.length} batches. ${ragSnippets.length} geological reports and proximity to ${nearestData[0]?.site_name || 'historical sites'} informed predictions.`,
+          sourceRef: "Hybrid Reasoning Engine v2 (Parallel)"
         },
         nearestDeposits: nearestData.map(d => ({
           name: d.site_name,
-          distance: `${d.distance_meters}m`,
-          grade: d.grade,
+          distance: `${d.distance_meters?.toFixed(0)}m`,
+          grade: d.grade ? `${d.grade} ${d.unit}` : (d.metadata?.dev_stat || 'Qualitative'),
           source: d.source
         })),
-        surfaceFeatures: { ndvi, thermal, swir }
-      };
-      
+        surfaceFeatures: {
+          ndvi: avgNdvi,
+          thermal: avgThermal,
+          swir: avgSwir
+        },
+        processingStats: {
+          totalVoxels: voxels.length,
+          batchCount: batches.length,
+          voxelsPerBatch: batches[0]?.voxels.length || 0
+        },
+        aiSummary: {
+          text: aiSummaryText,
+          confidence: finalConfidence,
+          generatedAt: new Date()
+        }
+      } as any;
+
       project.status = 'active';
+      project.confidence = finalConfidence;
+      project.pipelinePhase = 'completed' as any;
       project.lastInferenceAt = new Date();
-      
       await project.save();
 
-      await ActivityService.log('inference', `Completed inference. Generated ${processedVoxels.length} blocks.`, projectId, project.name);
-      Logger.job('InferencePipeline', 'DONE', `Successfully completed job for project: ${project.name}`);
+      await ActivityService.log('inference', `Completed: ${voxels.length} voxels processed in ${batches.length} parallel jobs. Confidence: ${finalConfidence}%`, projectId, project.name);
+      Logger.job('InferencePipeline', 'DONE', `Successfully completed job for project: ${project.name}`, {
+        voxelCount: mergedVoxels.length,
+        batchCount: batches.length,
+        confidence: finalConfidence
+      });
 
     } catch (error) {
       Logger.error(`InferencePipeline failed for ${projectId}`, error);
-      await Project.findByIdAndUpdate(projectId, { status: 'active' }); 
+      await Project.findByIdAndUpdate(projectId, { status: 'active', pipelinePhase: 'idle' });
+    }
+  }
+
+  /**
+   * Orchestrates the hybrid inference process (Legacy single-batch mode)
+   */
+  static async predictGrade(projectName: string, polygon: [number, number][]): Promise<any> {
+    try {
+      Logger.job('PredictGrade', 'START', `Starting prediction for ${projectName}`);
+
+      const geojson = { type: 'Polygon', coordinates: [polygon] };
+      const ndvi = await SatelliteService.getNDVI(geojson);
+      const thermal = await SatelliteService.getThermalAnomaly(geojson);
+      Logger.info(`[PredictGrade] Satellite data fetched: NDVI=${ndvi}, Thermal=${thermal}`);
+
+      const centerLon = polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length;
+      const centerLat = polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length;
+      const ragSnippets = await RAGService.searchKnowledge(`Geology and minerals near ${centerLat}, ${centerLon}`, 3);
+      const nearestData = await ExternalDataService.getNearestDeposits(centerLat, centerLon, 5);
+
+      const voxels = SpatialGridService.generateVoxels(polygon);
+      Logger.info(`[PredictGrade] Voxel grid generated: ${voxels.length} voxels`);
+
+      const prompt = `
+        System: You are an expert Geostatistician AI for the CLIMB system. 
+        Task: Estimate 3D mineral grade distribution for a mining block AOI.
+        
+        Context:
+        - Surface Vegetation (NDVI): ${ndvi}
+        - Thermal Anomaly: ${thermal} Celsius
+        - Nearest Historical Data (Kaggle): ${JSON.stringify(nearestData)}
+        - Geological Reports Snippets: ${JSON.stringify(ragSnippets)}
+        
+        AOI Info:
+        - Project: ${projectName}
+        - Total Voxels to Estimate: ${voxels.length}
+        - Depth Range: 0-50m
+        
+        Instructions:
+        1. Based on the geological context, correlate surface anomalies and nearest historical data.
+        2. Predict the grade of 'Gold (Au)' and 'Copper (Cu)' for each voxel.
+        3. Return ONLY a JSON array of objects with the following format:
+           [{"id": "voxel_id", "au_grade": number, "cu_grade": number, "reasoning": "short string"}]
+        
+        Respond only with the JSON array.
+      `;
+
+      Logger.info(`[PredictGrade] Calling Gemini 1.5 Pro...`);
+      const result = await generativeModel.generateContent(prompt);
+      const response = result.response;
+      const text = (response.candidates && response.candidates[0].content.parts[0].text) || (response as any).text();
+
+      const jsonString = text.replace(/```json|```/g, '').trim();
+      const predictions = JSON.parse(jsonString);
+      Logger.info(`[PredictGrade] Gemini returned ${predictions.length} predictions`);
+
+      const finalVoxels = voxels.map(v => {
+        const pred = predictions.find((p: any) => p.id === v.id) || { au_grade: 0, cu_grade: 0 };
+        return { ...v, ...pred };
+      });
+
+      Logger.job('PredictGrade', 'DONE', `Completed prediction for ${projectName}`);
+      return finalVoxels;
+
+    } catch (error) {
+      Logger.error('PredictGrade failed', error);
+      throw error;
     }
   }
 
@@ -162,7 +556,7 @@ export class InferenceService {
     try {
       const result = await Project.updateMany(
         { status: 'processing' },
-        { $set: { status: 'active' } } 
+        { $set: { status: 'active' } }
       );
       if (result.modifiedCount > 0) {
         Logger.info(`[System] Reset ${result.modifiedCount} stale 'processing' projects to 'active'.`);

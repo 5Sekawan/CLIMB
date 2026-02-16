@@ -18,6 +18,7 @@ export interface IVoxelData {
   cu_grade?: number;
   rock_type?: string;
   uncertainty?: number;
+  [key: string]: string | number | boolean | undefined; // Allow dynamic *_grade keys and isOre
 }
 
 export interface IMineralMetadata {
@@ -26,6 +27,19 @@ export interface IMineralMetadata {
 }
 
 export interface ICachedContext {
+  mineralRecon?: {
+    predictedMinerals: string[];
+    reasoning: string;
+    nearestOccurrences: string[];
+    confidence: number;
+    reconAt: Date;
+    surfaceAnalysis?: {
+      ndvi: number;
+      thermal: number;
+      swir: number;
+      interpretation: string;
+    };
+  };
   ragSummary?: {
     short: string;
     long: string;
@@ -42,6 +56,60 @@ export interface ICachedContext {
     thermal: number;
     swir: number;
   };
+  processingStats?: {
+    totalVoxels: number;
+    batchCount: number;
+    voxelsPerBatch: number;
+  };
+  aiSummary?: {
+    text: string;
+    confidence: number;
+    generatedAt: Date;
+  };
+}
+
+export interface IMarginalZoneStats {
+  npv: number;
+  totalTonnage: number;
+  oreTonnage: number;
+  wasteTonnage: number;
+  avgGrades: Record<string, number>;
+  totalRevenue: number;
+  totalCost: number;
+  dilutionRatio: number;
+  oreCount: number;
+  wasteCount: number;
+  marginalCount: number;
+}
+
+export interface IMarginalZone {
+  id: string;
+  name: string;
+  rank: number;
+  voxelIds: string[];
+  boundingBox: {
+    minLat: number; maxLat: number;
+    minLon: number; maxLon: number;
+    minDepth: number; maxDepth: number;
+  };
+  centerLat: number;
+  centerLon: number;
+  stats: IMarginalZoneStats;
+}
+
+export interface IMarginalZoneResult {
+  zones: IMarginalZone[];
+  economicParams: {
+    selectedMinerals: string[];
+    mineralPrices: Record<string, number>;
+    mineralUnits: Record<string, string>;
+    miningCost: number;
+    processingCost: number;
+    recoveryFactor: number;
+    density: number;
+  };
+  cogPerMineral: Record<string, number>;
+  generatedAt: Date;
 }
 
 export interface IEconomicParams {
@@ -62,7 +130,7 @@ export interface IProject extends Document {
   description?: string;
   location: string; // e.g., "East Kalimantan"
   status: 'active' | 'finished' | 'inactive' | 'processing'; // Added processing for internal state
-  
+
   // --- Geospatial ---
   aoi: IAOI;
   center: string; // "lat, lng" for UI display
@@ -70,7 +138,7 @@ export interface IProject extends Document {
   elevation: string; // e.g. "100-200m ASL"
 
   // --- Configuration ---
-  minerals: string[]; 
+  minerals: string[];
   mineralMetadata: Map<string, IMineralMetadata>;
   documents: mongoose.Types.ObjectId[]; // References to Knowledge Base
 
@@ -78,6 +146,7 @@ export interface IProject extends Document {
   driftStatus: 'stable' | 'drifting';
   confidence: number; // 0-100
   lastInferenceAt?: Date;
+  pipelinePhase: 'idle' | 'mineral_recon' | 'gathering_context' | 'voxelization' | 'batch_processing' | 'merging_results' | 'generating_summary' | 'completed';
   createdBy: mongoose.Types.ObjectId; // User ID
 
   // --- Cached Context (Persisted from Inference) ---
@@ -100,6 +169,9 @@ export interface IProject extends Document {
   voxelDataUrl?: string; // URL to JSON file (GCS/Local)
   inferenceResults?: IVoxelData[]; // Deprecated: Kept for legacy support
 
+  // --- Marginal Zones ---
+  marginalZones?: IMarginalZoneResult;
+
   // Metadata
   createdAt: Date;
   updatedAt: Date;
@@ -115,21 +187,34 @@ const AOISchema = new Schema({
     default: 'Polygon'
   },
   coordinates: {
-    type: [[[Number]]], 
+    type: [[[Number]]],
     required: true
   }
 }, { _id: false });
 
+const VoxelSchema = new Schema({
+  id: { type: String, required: true },
+  x: { type: Number, required: true }, // Longitude
+  y: { type: Number, required: true }, // Latitude
+  z: { type: Number, required: true }, // Depth
+  lat: { type: Number, required: true },
+  lon: { type: Number, required: true },
+  au_grade: Number,
+  cu_grade: Number,
+  rock_type: String,
+  uncertainty: Number
+}, { _id: false, strict: false }); // strict: false allows dynamic *_grade fields
+
 const ProjectSchema = new Schema<IProject>({
-  name: { 
-    type: String, 
+  name: {
+    type: String,
     required: [true, 'Project name is required'],
     trim: true,
     maxlength: 100
   },
   description: { type: String, maxlength: 500 },
   location: { type: String, default: 'Unknown Location' },
-  
+
   status: {
     type: String,
     enum: ['active', 'finished', 'inactive', 'processing'],
@@ -137,10 +222,10 @@ const ProjectSchema = new Schema<IProject>({
   },
 
   // Geospatial
-  aoi: { 
-    type: AOISchema, 
+  aoi: {
+    type: AOISchema,
     required: true,
-    index: '2dsphere' 
+    index: '2dsphere'
   },
   center: { type: String },
   area: { type: Number, default: 0 },
@@ -163,10 +248,28 @@ const ProjectSchema = new Schema<IProject>({
   },
   confidence: { type: Number, default: 0 },
   lastInferenceAt: Date,
+  pipelinePhase: {
+    type: String,
+    enum: ['idle', 'mineral_recon', 'gathering_context', 'voxelization', 'batch_processing', 'merging_results', 'generating_summary', 'completed'],
+    default: 'idle'
+  },
   createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: false }, // Optional for now to support legacy data
 
   // Cache
   cachedContext: {
+    mineralRecon: {
+      predictedMinerals: [String],
+      reasoning: String,
+      nearestOccurrences: [String],
+      confidence: Number,
+      reconAt: Date,
+      surfaceAnalysis: {
+        ndvi: Number,
+        thermal: Number,
+        swir: Number,
+        interpretation: String
+      }
+    },
     ragSummary: {
       short: String,
       long: String,
@@ -183,6 +286,16 @@ const ProjectSchema = new Schema<IProject>({
       ndvi: Number,
       thermal: Number,
       swir: Number
+    },
+    processingStats: {
+      totalVoxels: Number,
+      batchCount: Number,
+      voxelsPerBatch: Number
+    },
+    aiSummary: {
+      text: String,
+      confidence: Number,
+      generatedAt: Date
     }
   },
 
@@ -210,8 +323,13 @@ const ProjectSchema = new Schema<IProject>({
   voxelDataUrl: { type: String }, // Path to storage (e.g., /storage/project-id.json)
   
   inferenceResults: {
-    type: [Schema.Types.Mixed], // Loose schema to avoid validation overhead on legacy data
-    select: false 
+    type: [VoxelSchema],
+    select: false
+  },
+
+  marginalZones: {
+    type: Schema.Types.Mixed,
+    default: null
   }
 
 }, {

@@ -6,6 +6,9 @@ import { InferenceService } from '../services/inferenceService';
 import { AnalyticsService, EconomicParams } from '../services/analyticsService';
 import { ReconciliationService, ActualData } from '../services/reconciliationService';
 import { ActivityService } from '../services/activityService';
+import { GeoService } from '../services/geoService';
+import { MarginalZoneService, MarginalZoneInput } from '../services/marginalZoneService';
+
 
 // --- Validation Schemas ---
 
@@ -94,8 +97,8 @@ export class ProjectController {
       // 2. Convert Pins (Lat/Lng) to GeoJSON Polygon ([[Lon, Lat]])
       // Ensure closure: first point == last point
       const coordinates = pins.map(p => [p.lng, p.lat]);
-      if (coordinates[0][0] !== coordinates[coordinates.length - 1][0] || 
-          coordinates[0][1] !== coordinates[coordinates.length - 1][1]) {
+      if (coordinates[0][0] !== coordinates[coordinates.length - 1][0] ||
+        coordinates[0][1] !== coordinates[coordinates.length - 1][1]) {
         coordinates.push(coordinates[0]);
       }
 
@@ -104,20 +107,25 @@ export class ProjectController {
       // Validate Geometry (Prevent Self-Intersection)
       const kinks = turf.kinks(polygon);
       if (kinks.features.length > 0) {
-        return res.status(400).json({ 
-          error: "Invalid Polygon: Self-intersection detected. Please ensure the boundary lines do not cross each other." 
+        return res.status(400).json({
+          error: "Invalid Polygon: Self-intersection detected. Please ensure the boundary lines do not cross each other."
         });
       }
-      
+
       // 3. Calculate Center & Area
       const centerPt = turf.center(polygon);
       const areaKm2 = turf.area(polygon) / 1000000; // m2 to km2
-      const centerStr = `${centerPt.geometry.coordinates[1].toFixed(4)}, ${centerPt.geometry.coordinates[0].toFixed(4)}`;
+      const centerLat = centerPt.geometry.coordinates[1];
+      const centerLng = centerPt.geometry.coordinates[0];
+      const centerStr = `${centerLat.toFixed(4)}, ${centerLng.toFixed(4)}`;
 
-      // 4. Create Project
+      // 4. Get Real Location & Elevation from Google Maps APIs
+      const geoData = await GeoService.getGeoData(centerLat, centerLng, coordinates);
+
+      // 5. Create Project
       const newProject = new Project({
         name,
-        location: location || "Indonesia Region", // Default or reverse-geocoded later
+        location: geoData.location || location || "Unknown Location",
         description,
         createdBy: req.user?._id, // Assign owner
         aoi: {
@@ -126,6 +134,7 @@ export class ProjectController {
         },
         center: centerStr,
         area: parseFloat(areaKm2.toFixed(2)),
+        elevation: geoData.elevation,
         documents: selectedDocuments || [],
         status: 'active', // Default status
         mineralMetadata: {
@@ -229,16 +238,17 @@ export class ProjectController {
   static async getInferenceStatus(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const project = await Project.findById(id).select('status lastInferenceAt');
+      const project = await Project.findById(id).select('status lastInferenceAt pipelinePhase');
 
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
 
-      res.status(200).json({ 
-        success: true, 
+      res.status(200).json({
+        success: true,
         status: project.status,
-        lastInferenceAt: project.lastInferenceAt 
+        lastInferenceAt: project.lastInferenceAt,
+        pipelinePhase: project.pipelinePhase || 'idle',
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -285,7 +295,7 @@ export class ProjectController {
       if (!name || !polygon) return res.status(400).json({ error: 'Missing parameters' });
 
       const voxelData = await InferenceService.predictGrade(name, polygon);
-      
+
       // Automatic initial analysis with default parameters (Enterprise Defaults)
       const defaultParams: EconomicParams = {
         priceAu: 1800, // USD/oz
@@ -315,7 +325,7 @@ export class ProjectController {
   static async simulateParameters(req: Request, res: Response) {
     try {
       const { voxelData, cog, economicParams } = req.body;
-      
+
       if (!voxelData || cog === undefined || !economicParams) {
         return res.status(400).json({ error: 'Missing voxelData, COG, or economicParams' });
       }
@@ -337,6 +347,86 @@ export class ProjectController {
 
       const report = await ReconciliationService.reconcile(actuals as ActualData[], predictedVoxels);
       res.status(200).json({ success: true, reconciliationReport: report });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * POST /api/projects/:id/marginal-zones/generate
+   * Generate marginal zone recommendations using the Greedy Block Algorithm.
+   */
+  static async generateMarginalZones(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { selectedMinerals, mineralPrices, mineralUnits, miningCost, processingCost, recoveryFactor, density } = req.body;
+
+      // Validate required fields
+      if (!selectedMinerals || !Array.isArray(selectedMinerals) || selectedMinerals.length === 0) {
+        return res.status(400).json({ error: 'At least one mineral must be selected' });
+      }
+      if (!mineralPrices || typeof mineralPrices !== 'object') {
+        return res.status(400).json({ error: 'Mineral prices are required' });
+      }
+      if (miningCost === undefined || processingCost === undefined || recoveryFactor === undefined) {
+        return res.status(400).json({ error: 'Mining cost, processing cost, and recovery factor are required' });
+      }
+
+      // Load project with voxels
+      const project = await Project.findById(id).select('+inferenceResults');
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      if (!project.inferenceResults || project.inferenceResults.length === 0) {
+        return res.status(400).json({ error: 'No inference results available. Run inference first.' });
+      }
+
+      const input: MarginalZoneInput = {
+        selectedMinerals,
+        mineralPrices,
+        mineralUnits: mineralUnits || {},
+        miningCost: Number(miningCost),
+        processingCost: Number(processingCost),
+        recoveryFactor: Number(recoveryFactor),
+        density: Number(density) || 2.5,
+      };
+
+      // Run the Greedy Block Algorithm
+      const result = MarginalZoneService.analyze(project.inferenceResults as any[], input);
+
+      // Persist results
+      project.marginalZones = result as any;
+      await project.save();
+
+      await ActivityService.log(
+        'system',
+        `Generated ${result.zones.length} marginal zones (Top NPV: $${result.zones[0]?.stats.npv.toLocaleString() || 0})`,
+        id as string,
+        project.name
+      );
+
+      res.status(200).json({ success: true, data: result });
+    } catch (error: any) {
+      console.error('Generate Marginal Zones Error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * GET /api/projects/:id/marginal-zones
+   * Retrieve saved marginal zone recommendations.
+   */
+  static async getMarginalZones(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const project = await Project.findById(id).select('marginalZones');
+
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      res.status(200).json({ success: true, data: project.marginalZones || null });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

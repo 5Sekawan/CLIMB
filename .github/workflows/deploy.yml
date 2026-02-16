@@ -6,6 +6,8 @@ on:
       - main
       - dev-1
       - dev-2
+      - dev-3
+      - dev-4
 
 jobs:
   deploy:
@@ -33,6 +35,12 @@ jobs:
           elif [[ "${{ github.ref_name }}" == "dev-2" ]]; then
             echo "INSTANCE_IP=${{ secrets.VM_IP_DEV_2 }}" >> $GITHUB_ENV
             echo "DOMAIN=${{ secrets.DOMAIN_DEV_2 }}" >> $GITHUB_ENV
+          elif [[ "${{ github.ref_name }}" == "dev-3" ]]; then
+            echo "INSTANCE_IP=${{ secrets.VM_IP_PROD }}" >> $GITHUB_ENV
+            echo "DOMAIN=${{ secrets.DOMAIN_PROD }}" >> $GITHUB_ENV
+          elif [[ "${{ github.ref_name }}" == "dev-4" ]]; then
+            echo "INSTANCE_IP=${{ secrets.VM_IP_PROD }}" >> $GITHUB_ENV
+            echo "DOMAIN=${{ secrets.DOMAIN_PROD }}" >> $GITHUB_ENV
           fi
 
       - name: Deploy to VM via SSH

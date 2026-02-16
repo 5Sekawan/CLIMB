@@ -16,6 +16,7 @@ export interface IVoxelData {
   cu_grade?: number;
   rock_type?: string;
   uncertainty?: number;
+  [key: string]: any;  // Support dynamic mineral grades (e.g., ni_grade, ag_grade)
 }
 
 export interface IMineralMetadata {
@@ -29,7 +30,7 @@ export interface IProject {
   description?: string;
   location: string;
   status: ProjectStatus;
-  
+
   // Geospatial
   aoi: {
     type: 'Polygon';
@@ -51,6 +52,19 @@ export interface IProject {
 
   // Cache
   cachedContext?: {
+    mineralRecon?: {
+      predictedMinerals: string[];
+      reasoning: string;
+      nearestOccurrences: string[];
+      confidence: number;
+      reconAt?: string;
+      surfaceAnalysis?: {
+        ndvi: number;
+        thermal: number;
+        swir: number;
+        interpretation: string;
+      };
+    };
     ragSummary?: {
       short: string;
       long: string;

@@ -6,7 +6,7 @@
 # Usage: 
 #   1. Copy this content to vm using: nano setup_vm.sh
 #   2. Run: chmod +x setup_vm.sh && ./setup_vm.sh
-# =================================================================
+# ==================================================================
 
 echo "Starting CLIMB VM Setup..."
 
